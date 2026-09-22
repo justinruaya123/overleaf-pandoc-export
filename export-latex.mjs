@@ -101,6 +101,88 @@ function matrixArrays(text) {
   return text;
 }
 
+function prepareAlgorithms(text) {
+  const algorithms = [];
+  // Only the algorithmic dialect is handled here. Unknown commands still reach
+  // the raw-LaTeX rejection below rather than being silently discarded.
+  for (const range of envRanges(text, 'algorithmic').reverse()) {
+    let body = text.slice(range.start + String.raw`\begin{algorithmic}`.length,
+      range.end - String.raw`\end{algorithmic}`.length).trim();
+    let frequency = 0;
+    if (body.startsWith('[')) {
+      const option = group(body, 0, '[', ']');
+      if (!/^\d+$/.test(option.value)) throw new Error('Unsupported algorithmic numbering option');
+      frequency = Number(option.value); body = body.slice(option.end);
+    }
+    const tokens = [];
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] === '{') { i = group(body, i).end - 1; continue; }
+      if (body[i] !== '\\') continue;
+      const command = /^\\(STATE|FOR|IF|RETURN|ENDIF|ENDFOR)\b/.exec(body.slice(i));
+      if (command) { tokens.push({name:command[1], start:i, end:i + command[0].length}); i += command[0].length - 1; }
+      else i++; // Includes escaped braces and backslashes.
+    }
+    if (!tokens.length || body.slice(0, tokens[0].start).trim()) throw new Error('Unsupported algorithmic content before first statement');
+    const stack = [], lines = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      let content = body.slice(token.end, tokens[i+1]?.start ?? body.length).trim();
+      if (token.name.startsWith('END')) {
+        if (stack.pop() !== token.name.slice(3)) throw new Error(`algorithmic nesting mismatch at ${token.name}`);
+      }
+      const depth = stack.length;
+      if (token.name === 'FOR' || token.name === 'IF') {
+        const condition = group(content, 0);
+        content = `\\textbf{${token.name.toLowerCase()}} ${condition.value} \\textbf{${token.name === 'FOR' ? 'do' : 'then'}} ` + content.slice(condition.end);
+        stack.push(token.name);
+      } else if (token.name === 'RETURN') content = '\\textbf{return} ' + content;
+      else if (token.name.startsWith('END')) content = `\\textbf{end ${token.name.slice(3).toLowerCase()}} ` + content;
+      content = replaceCommand(content, 'COMMENT', value => `\\{${value}\\}`);
+      // algorithmic permits prose between maths (including text/quad commands).
+      // Leave mathematical text and spacing commands inside equations intact.
+      const prose = value => replaceCommand(value, 'text', inner => inner).replace(/\\quad\b/g, '\u2003');
+      let formatted = '', cursor = 0;
+      for (const range of mathRanges(content)) {
+        formatted += prose(content.slice(cursor, range.start)) + content.slice(range.start, range.end);
+        cursor = range.end;
+      }
+      content = formatted + prose(content.slice(cursor));
+      lines.push({depth, content});
+    }
+    if (stack.length) throw new Error(`algorithmic Unclosed ${stack.at(-1)}`);
+    const marker = `EXPORTALGORITHM${algorithms.length}`;
+    algorithms.push({marker, frequency, lines});
+    const replacement = '\n\\begin{quote}\n\\texttt{' + marker + '}\n\n\\begin{enumerate}\n' +
+      lines.map(line => '\\item ' + line.content).join('\n') + '\n\\end{enumerate}\n\\end{quote}\n';
+    text = text.slice(0, range.start) + replacement + text.slice(range.end);
+  }
+  return {text, algorithms};
+}
+
+function styleAlgorithms(ast, algorithms) {
+  const pending = new Map(algorithms.map(item => [item.marker, item]));
+  walk(ast, node => {
+    if (node.t !== 'BlockQuote') return;
+    const first = node.c[0];
+    if (first?.t !== 'Para' || first.c.length !== 1 || first.c[0].t !== 'Code') return;
+    const algorithm = pending.get(first.c[0].c[1]);
+    if (!algorithm) return;
+    const list = node.c[1];
+    if (node.c.length !== 2 || list?.t !== 'OrderedList' || list.c[1].length !== algorithm.lines.length) {
+      throw new Error('Algorithm structure changed during Pandoc parsing');
+    }
+    list.c[1] = list.c[1].map((blocks, i) => {
+      const {depth} = algorithm.lines[i];
+      const number = algorithm.frequency && (i+1) % algorithm.frequency === 0 ? `${i+1}:` : '';
+      return [{t:'Div', c:[['', ['algorithm-line'], [['data-depth', String(depth)], ['data-number', number],
+        ['style', `padding-left:${depth * 1.5}em`]]], blocks]}];
+    });
+    node.t = 'Div'; node.c = [['', ['algorithm'], []], [list]];
+    pending.delete(algorithm.marker);
+  });
+  if (pending.size) throw new Error('Algorithm lost during Pandoc parsing');
+}
+
 export function normalizeLatex(text) {
   const counts = {systems: 0, matrices: (text.match(/\\begin\{bmatrix\}\[/g) || []).length, overlays: 0};
   text = replaceCommand(text, 'systeme', value => {
@@ -123,7 +205,16 @@ export function normalizeLatex(text) {
     counts.overlays++;
     return '';
   });
-  text = text.replace(/\\pause(?:\[[^\]]*\])?/g, '');
+  text = text.replace(/\\(?:mathpause|pause)\b(?:\[[^\]]*\])?/g, '');
+  // MathJax lacks intertext. Preserve it as prose between unnumbered displays.
+  for (const range of envRanges(text, 'align\\*').reverse()) {
+    const block = text.slice(range.start, range.end);
+    if (!/\\intertext\b/.test(block)) continue;
+    const converted = replaceCommand(block, 'intertext', value =>
+      `\\end{align*}\n\n${value}\n\n\\begin{align*}`)
+      .replace(/\\\\\s*(?=\\end\{align\*\})/g, '');
+    text = text.slice(0, range.start) + converted + text.slice(range.end);
+  }
   text = text.replace(/\\(?:structure|alert|finalpage)(?![A-Za-z])/g, '\\textbf');
   text = text.replace(/\\pgfimage\b/g, '\\includegraphics');
   return {text, counts};
@@ -166,7 +257,7 @@ function flattenBeamer(body) {
       body = body.slice(0, size.index) + arg.value + body.slice(arg.end);
     } else body = body.slice(0, size.index) + body.slice(end);
   }
-  body = body.replace(/\\(?:noindent|maketitle)\b/g, '');
+  body = body.replace(/\\(?:noindent|maketitle|centering|medskip)\b/g, '');
   body = body.replace(/\\color\{([^{}]+)\}(?=\{)/g, '\\textcolor{$1}');
   body = body.replace(/\\vspace\*?\s*\{[^{}]*\}/g, '');
   body = body.replace(/\\setlength\s*(?:\{\\\w+\}|\\\w+)\s*\{[^{}]*\}/g, '');
@@ -272,6 +363,8 @@ function mathRanges(text) {
     let end = start;
     for (; end < text.length; end++) {
       if (text.startsWith(closing, end)) break;
+      // Dollars inside a braced \text{...} do not close the outer maths.
+      if (text[end] === '{') { end = group(text, end).end - 1; continue; }
       if (text[end] === '\\') end++;
     }
     if (end >= text.length) throw new Error(`Unclosed math delimiter near ${text.slice(i, i+100)}`);
@@ -299,6 +392,7 @@ html{background:#edf0f4;color:#17212c}body{max-width:1100px;margin:auto;padding:
 header{padding:2rem}h1,h2,h3,h4{line-height:1.25;color:#183c65}h1{margin-top:2em}h3{font-size:1.35rem}
 body>blockquote{background:white;border:1px solid #dce2e9;border-radius:8px;margin:1.5rem 0;padding:1.5rem 2rem;box-shadow:0 2px 8px #00000008}
 blockquote{margin:1rem 0;padding:0}img{max-width:100%;height:auto;display:block;margin:1rem auto}table{border-collapse:collapse;margin:1em auto}td,th{padding:.4rem .8rem;border-bottom:1px solid #ddd}
+.algorithm{overflow-x:auto;margin:1em 0}.algorithm ol{list-style:none;padding-left:2.5em}.algorithm li{position:relative;margin:.25em 0}.algorithm-line::before{content:attr(data-number);position:absolute;left:-2.5em;width:2em;text-align:right}.algorithm-line p{margin:0}.algorithm .math.inline{white-space:nowrap}
 .math.display{display:block;overflow-x:auto;padding:.5em 0}mjx-container{display:inline-block;max-width:100%;text-indent:0;line-height:0}mjx-container[display="true"]{display:block;text-align:center;margin:1em 0}mjx-container svg{overflow:visible;min-width:0}mjx-container svg a{fill:blue;stroke:blue}
 @media(max-width:650px){body{padding:.5rem}body>blockquote{padding:1rem}.math.inline{overflow-wrap:anywhere}}@media print{html{background:white}body>blockquote{box-shadow:none;break-inside:avoid}}
 </style>`;
@@ -357,7 +451,9 @@ export function build(input, options = {}) {
       body = body.replace(`EXPORTFIGURE${i}`, slash(svgFile));
       report.images.push({kind:'tikz', file:svgFile, sha256:hash(fs.readFileSync(svgFile))});
     }
-    const normalized = normalizeLatex(body);
+    const prepared = prepareAlgorithms(body);
+    report.algorithms = prepared.algorithms.length;
+    const normalized = normalizeLatex(prepared.text);
     Object.assign(report, normalized.counts);
     const flattened = flattenBeamer(normalized.text);
     report.frames = flattened.frames;
@@ -373,6 +469,19 @@ export function build(input, options = {}) {
     const parsed = run(pandoc, ['--from=latex+raw_tex+latex_macros','--to=json', intermediate], path.dirname(source));
     report.warnings.push(...parsed.stderr.trim().split('\n').filter(Boolean));
     const ast = JSON.parse(parsed.stdout);
+    styleAlgorithms(ast, prepared.algorithms);
+    const figureIds = new Set(), linkedIds = new Set();
+    walk(ast, node => { if (node.t === 'Link') linkedIds.add(node.c[2][0]); });
+    walk(ast, node => {
+      if (node.t !== 'Figure' || !node.c[0][0]) return;
+      const id = node.c[0][0];
+      if (figureIds.has(id)) {
+        if (linkedIds.has('#' + id)) throw new Error(`Ambiguous reference to duplicate figure label: ${id}`);
+        node.c[0][0] = '';
+        report.warnings.push(`Removed duplicate figure label from HTML: ${id} (figure content preserved).`);
+      }
+      figureIds.add(id);
+    });
     const raw = [], maths = [], images = [];
     walk(ast, node => {
       if (['RawInline','RawBlock'].includes(node.t) && ['latex','tex'].includes(node.c[0])) raw.push(node.c[1]);
@@ -424,6 +533,7 @@ export function build(input, options = {}) {
     report.status = 'failed'; report.error = error.message;
     if (/Math rendering failed|equation reference|equation label/.test(error.message)) report.mathErrors.push(error.message);
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+    error.exportReport = {warnings: report.warnings, reportPath, output};
     throw error;
   }
 }
@@ -445,6 +555,15 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     }
     if (!input) throw new Error('Supply a .tex file. Run with --help for usage.');
     const report = build(input, options);
+    for (const warning of report.warnings) console.error(`Warning: ${warning}`);
     console.log(`Exported: ${report.output}\n${report.frames} frames, ${report.mathCount} maths, ${report.systems} systems, ${report.tikzBlocks} TikZ blocks. Source unchanged.`);
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
+  } catch (error) {
+    for (const warning of error.exportReport?.warnings || []) console.error(`Warning: ${warning}`);
+    console.error(`Export failed: ${error.message}`);
+    if (error.exportReport) {
+      console.error(`Report: ${error.exportReport.reportPath}`);
+      console.error(`No new HTML was published. Any existing file at ${error.exportReport.output} is from an earlier export.`);
+    }
+    process.exitCode = 1;
+  }
 }

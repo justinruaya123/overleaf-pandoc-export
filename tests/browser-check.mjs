@@ -52,6 +52,9 @@ try {
   assert.deepEqual(network, [], 'HTML requested a network resource');
   const frames = page.locator('body > blockquote');
   const selected = [
+    ['qr-algorithm', frames.filter({hasText:'Simple QR Iteration'}).first()],
+    ['gershgorin-illustration', frames.filter({hasText:'Gershgorin Discs of a'}).first()],
+    ['gershgorin-discs', frames.filter({has:page.locator('img[src^="data:"]')}).filter({hasText:'Gershgorin Circle Theorem'}).last()],
     ['systems', frames.filter({hasText:'with the true solution equal to'}).first()],
     ['elimination', frames.filter({hasText:'Gaussian Elimination — Example'}).first()],
     ['highlighted-matrix', frames.filter({hasText:'The Algorithm: Elimination Phase'}).first()],
@@ -62,6 +65,8 @@ try {
   }
   await page.setViewportSize({width:390,height:844});
   const mobile = await inspect();
+  const algorithm = page.locator('.algorithm');
+  if (await algorithm.count()) await algorithm.first().screenshot({path:path.join(directory, 'qr-algorithm-mobile.png')});
   assert.equal(mobile.horizontalOverflow, false, 'mobile page overflows horizontally');
   assert.deepEqual(mobile.unrenderedMath, []);
   const summary = {status:'passed', outputSha256, browser:await browser.version(), offline:true, desktop:{...desktop,contentText:undefined}, mobile:{width:390, horizontalOverflow:mobile.horizontalOverflow}, consoleErrors:errors, networkRequests:network};

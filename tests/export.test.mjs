@@ -24,10 +24,10 @@ test('nested matrices with two column specifications both close correctly', () =
 });
 
 test('Beamer wrappers preserve nested content and all overlay steps', () => {
-  const {text} = normalizeLatex(String.raw`\onslide<6->\structure{$\Rightarrow [x]^T = [2]^T$} \only<2>{\textbf{Done}}`);
+  const {text} = normalizeLatex(String.raw`\onslide<6->\structure{$\Rightarrow [x]^T = [2]^T\mathpause = y$} \only<2>{\textbf{Done}}`);
   assert.match(text, /\\textbf\{\$\\Rightarrow/);
   assert.match(text, /\\textbf\{Done\}/);
-  assert.doesNotMatch(text, /onslide|structure|only/);
+  assert.doesNotMatch(text, /onslide|structure|only|mathpause/);
 });
 
 test('remember-picture coordinates and their overlay are extracted together', () => {
@@ -117,4 +117,75 @@ test('a different input document compiles and embeds a standalone TikZ picture',
   assert.equal(report.images.filter(image => image.kind === 'embedded').length,1);
   assert.match(fs.readFileSync(report.output,'utf8'), /src="data:image\/(?:svg\+xml|png);base64,/);
   assert.equal(fs.readFileSync(input,'utf8'),source);
+});
+
+test('algorithmic exports numbered nested steps, comments and multiline return maths', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-algorithm-'));
+  const input = path.join(directory, 'algorithm.tex');
+  const source = String.raw`\documentclass{article}\begin{document}
+\begin{algorithmic}[1]
+\STATE Given $A$
+\FOR{$k=0,1$}
+\STATE Compute $R=Q^\top A$ \quad \COMMENT{Same loop with $Q$}
+\IF{$\text{subdiag($A$)}<1$\text{ or }$k=1$}
+\RETURN $V=\begin{bmatrix}
+v_1 & v_2
+\end{bmatrix}$
+\ENDIF
+\ENDFOR
+\end{algorithmic}\medskip After.\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  assert.equal(report.algorithms, 1);
+  assert.equal(report.mathCount, 7);
+  assert.equal((html.match(/class="algorithm-line"/g) || []).length, 7);
+  assert.deepEqual([...html.matchAll(/data-depth="(\d+)"/g)].map(m => +m[1]), [0,0,1,1,2,1,0]);
+  assert.match(html, /<strong>for<\/strong>/);
+  assert.match(html, /<strong>end if<\/strong>/);
+  assert.match(html, /Same loop with/);
+  assert.match(html, / or /);
+  assert.match(html, /data-tex="V=\\begin\{bmatrix\}/);
+  assert.match(html, /After\./);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+});
+
+test('malformed algorithm nesting fails instead of changing control flow', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-algorithm-invalid-'));
+  const input = path.join(directory, 'invalid.tex');
+  fs.writeFileSync(input, String.raw`\documentclass{article}\begin{document}
+\begin{algorithmic}[1]\FOR{$k=1$}\STATE Work\ENDIF\end{algorithmic}
+\end{document}`);
+  assert.throws(() => build(input), /algorithmic.*(?:mismatch|Unclosed)/i);
+});
+
+test('intertext retains explanatory prose and nested maths between aligned equations', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-intertext-'));
+  const input = path.join(directory, 'intertext.tex');
+  fs.writeFileSync(input, String.raw`\documentclass{article}\begin{document}
+\begin{align*}a&=b\\\intertext{Since $x>0$, continue.}c&=d\end{align*}
+\end{document}`);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  assert.equal(report.mathCount, 3);
+  assert.match(html, /Since/);
+  assert.match(html, /continue\./);
+  assert.match(html, /data-tex="x&gt;0"/);
+});
+
+test('repeated unreferenced figure labels retain every figure without duplicate HTML ids', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-figure-labels-'));
+  const input = path.join(directory, 'figures.tex');
+  fs.writeFileSync(path.join(directory, 'dot.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4"/></svg>');
+  fs.writeFileSync(input, String.raw`\documentclass{article}\begin{document}
+\begin{figure}\includegraphics{dot.svg}\caption{First}\label{placeholder}\end{figure}
+\begin{figure}\includegraphics{dot.svg}\caption{Second}\label{placeholder}\end{figure}
+\end{document}`);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  assert.equal((html.match(/id="placeholder"/g) || []).length, 1);
+  assert.equal((html.match(/<figure\b/g) || []).length, 2);
+  assert.match(html, /First/);
+  assert.match(html, /Second/);
+  assert.ok(report.warnings.some(warning => /duplicate figure label/i.test(warning)));
 });

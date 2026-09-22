@@ -86,6 +86,8 @@ Executables are discovered on `PATH`; the script also checks the standard Window
 - Standalone `tikzpicture` environments. A `center` block containing inline TikZ, `\DoTikzmark`, or `\colrow` is rendered as one unit, preserving coordinates and overlays. LaTeX runs twice.
 - `\includegraphics` and `\pgfimage`, including extensionless local references and single-page PDFs.
 - Beamer frame titles, blocks, all progressive reveal steps, and `\structure`/`\alert` content. Frames become sections on one scrollable page.
+- `algorithmic` pseudocode using `\STATE`, `\FOR`/`\ENDFOR`, `\IF`/`\ENDIF`, `\RETURN`, and `\COMMENT`. The HTML preserves sequential line numbers (when requested), nesting, brace-delimited comments, and rendered maths. Long equations scroll within the algorithm on narrow screens. Other algorithm dialects and commands are not yet supported and fail explicitly.
+- `\intertext` in unnumbered `align*` environments, exported as prose between equation displays. `\mathpause` and presentation-only `\medskip` commands are omitted.
 
 The diagram preamble reuses source-defined commands and `\usetikzlibrary`. For additional TikZ styles, packages, or external definitions, pass `--tikz-preamble path/to/additions.tex`. Changing this file invalidates the diagram content cache. PDF-only theme backgrounds and the SCL logo-placement command are omitted; this is a content export, not a pixel-identical Beamer presentation.
 
@@ -112,3 +114,5 @@ The unit and integration tests cover source preservation, input/output paths wit
 The script is designed for the constructs in this lecture plus ordinary LaTeX maths and standalone TikZ. It is not a general TeX interpreter. Unsupported commands fail explicitly so they can be adapted rather than silently disappear. External `\input`/`\include` files currently require a flattened input document. Remote images are rejected for the offline output. Overlay alternatives such as `\alt` and `\temporal` need an explicit export decision and are rejected. Inline coordinate-dependent TikZ outside a `center` block should be enclosed in a self-contained renderable block first.
 
 Validation checks conversion and rendering, not the mathematical correctness of the lecture's statements or numerical calculations.
+
+Repeated, unreferenced figure labels (such as `fig:placeholder`) generate a warning: the first HTML ID is retained and repeated IDs are omitted without removing figures or captions. References to a repeated figure label fail as ambiguous.
