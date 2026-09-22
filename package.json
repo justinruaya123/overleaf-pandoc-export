@@ -1,0 +1,17 @@
+{
+  "name": "latex-pandoc-html-export",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "export": "node export-latex.mjs",
+    "test:browser": "node tests/browser-check.mjs"
+  },
+  "dependencies": {
+    "mathjax-full": "3.2.2"
+  },
+  "overrides": {"@xmldom/xmldom": "0.9.12"},
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
