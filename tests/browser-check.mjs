@@ -52,6 +52,9 @@ try {
   assert.deepEqual(network, [], 'HTML requested a network resource');
   const frames = page.locator('body > blockquote');
   const selected = [
+    ['qr-scheme', frames.filter({has:page.locator('h3', {hasText:/QR Factorization.*Scheme/})}).first()],
+    ['qr-orthogonal', frames.filter({hasText:'Obtaining the orthogonal matrix'}).first()],
+    ['qr-gram-schmidt', frames.filter({hasText:'Computation'}).first()],
     ['qr-algorithm', frames.filter({hasText:'Simple QR Iteration'}).first()],
     ['gershgorin-illustration', frames.filter({hasText:'Gershgorin Discs of a'}).first()],
     ['gershgorin-discs', frames.filter({has:page.locator('img[src^="data:"]')}).filter({hasText:'Gershgorin Circle Theorem'}).last()],

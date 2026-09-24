@@ -72,9 +72,16 @@ function envRanges(text, name) {
 
 export function extractRenderBlocks(text) {
   // A remembered coordinate and every drawing which uses it must share a page.
-  const centers = envRanges(text, 'center').filter(r => /\\(?:tikz|DoTikzmark|colrow)\b/.test(text.slice(r.start, r.end)));
+  const centers = envRanges(text, 'center').filter(r => /\\(?:tikz|DoTikzmark|colrow)\b|\\begin\{tikzpicture\}/.test(text.slice(r.start, r.end)));
   const pictures = envRanges(text, 'tikzpicture');
-  const ranges = [...centers, ...pictures].sort((a,b) => a.start - b.start || b.end - a.end)
+  // Pandoc leaves resizebox opaque. Render the complete box so nested
+  // scalebox, array spacing, xcolor mixes and tabular layouts stay intact.
+  const boxes = [...text.matchAll(/\\resizebox\b\*?/g)].map(match => {
+    const width = group(text, match.index + match[0].length);
+    const height = group(text, width.end);
+    return {start:match.index, end:group(text, height.end).end};
+  });
+  const ranges = [...centers, ...pictures, ...boxes].sort((a,b) => a.start - b.start || b.end - a.end)
     .filter((r, i, all) => !all.slice(0,i).some(p => p.start <= r.start && p.end >= r.end));
   const blocks = [];
   let result = '', cursor = 0;
@@ -419,7 +426,9 @@ export function build(input, options = {}) {
     const defs = commandDefinitions(preamble);
     const extracted = extractRenderBlocks(body);
     body = extracted.text;
-    report.tikzBlocks = extracted.blocks.length;
+    const blockKinds = extracted.blocks.map(block => /\\(?:tikz|DoTikzmark|colrow)\b|\\begin\{tikzpicture\}/.test(block) ? 'tikz' : 'latex-box');
+    report.tikzBlocks = blockKinds.filter(kind => kind === 'tikz').length;
+    report.latexBoxBlocks = blockKinds.filter(kind => kind === 'latex-box').length;
     let pdflatex, dvisvgm, pdftoppm;
     const converter = () => dvisvgm ||= executable('dvisvgm', options.dvisvgm);
     const pdfToSvg = (pdf, destination) => {
@@ -438,8 +447,14 @@ export function build(input, options = {}) {
     const extra = options['tikz-preamble'] ? fs.readFileSync(path.resolve(options['tikz-preamble']), 'utf8') : '';
     for (let i = 0; i < extracted.blocks.length; i++) {
       let block = matrixArrays(extracted.blocks[i]).replace(/\\(?:begin|end)\{center\}/g, '');
+      // Empty source/comment lines must not become paragraph breaks in maths.
+      // Preserve paragraph spacing outside the math delimiters.
+      for (const range of mathRanges(block).reverse()) {
+        block = block.slice(0, range.start) + block.slice(range.start, range.end)
+          .replace(/\r?\n(?:[ \t]*\r?\n)+/g, '\n') + block.slice(range.end);
+      }
       const standalone = '\\documentclass[border=6pt]{standalone}\n\\usepackage{amsmath,amssymb,tikz}\n' + defs + '\n' + libraries + '\n' + extra + '\n\\begin{document}\n' + block + '\n\\end{document}\n';
-      const key = hash(standalone).slice(0,20), stem = `tikz-${key}`;
+      const key = hash(standalone).slice(0,20), stem = `${blockKinds[i]}-${key}`;
       let svgFile = path.join(work, stem + '.svg');
       if (fs.existsSync(path.join(work, stem + '.png'))) svgFile = path.join(work, stem + '.png');
       if (!fs.existsSync(svgFile)) {
@@ -449,7 +464,7 @@ export function build(input, options = {}) {
         svgFile = pdfToSvg(path.join(work, stem + '.pdf'), svgFile);
       }
       body = body.replace(`EXPORTFIGURE${i}`, slash(svgFile));
-      report.images.push({kind:'tikz', file:svgFile, sha256:hash(fs.readFileSync(svgFile))});
+      report.images.push({kind:blockKinds[i], file:svgFile, sha256:hash(fs.readFileSync(svgFile))});
     }
     const prepared = prepareAlgorithms(body);
     report.algorithms = prepared.algorithms.length;
@@ -556,7 +571,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     if (!input) throw new Error('Supply a .tex file. Run with --help for usage.');
     const report = build(input, options);
     for (const warning of report.warnings) console.error(`Warning: ${warning}`);
-    console.log(`Exported: ${report.output}\n${report.frames} frames, ${report.mathCount} maths, ${report.systems} systems, ${report.tikzBlocks} TikZ blocks. Source unchanged.`);
+    console.log(`Exported: ${report.output}\n${report.frames} frames, ${report.mathCount} maths, ${report.systems} systems, ${report.tikzBlocks} TikZ blocks, ${report.latexBoxBlocks} LaTeX boxes. Source unchanged.`);
   } catch (error) {
     for (const warning of error.exportReport?.warnings || []) console.error(`Warning: ${warning}`);
     console.error(`Export failed: ${error.message}`);

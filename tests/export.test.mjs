@@ -45,6 +45,16 @@ test('comments respect escaped percent and escaped backslash', () => {
   assert.equal(stripComments('a\\%b %gone\nc\\\\%gone\nd'), 'a\\%b \nc\\\\\nd');
 });
 
+test('resized layouts retain nested scale boxes and TikZ in one render block', () => {
+  const equation = String.raw`\resizebox{0.99\textwidth}{!}{$Q=\scalebox{1.18}{$\begin{bmatrix}1\end{bmatrix}$}$}`;
+  const picture = String.raw`\begin{center}\resizebox{0.95\textwidth}{!}{\begin{tikzpicture}\draw (0,0)--(1,1);\end{tikzpicture}}\end{center}`;
+  const {text, blocks} = extractRenderBlocks(`Before ${equation} between ${picture} after.`);
+  assert.deepEqual(blocks, [equation, picture]);
+  assert.doesNotMatch(text, /resizebox|scalebox|tikzpicture/);
+  assert.match(text, /Before[\s\S]*between[\s\S]*after\./);
+  assert.equal((text.match(/\\includegraphics/g) || []).length, 2);
+});
+
 test('MathJax rejects unknown commands instead of drawing error text', () => {
   assert.throws(() => renderMath([{tex: String.raw`\definitelyUnknown{x}`, display: false}]), /Undefined control sequence/);
   const output = renderMath([{tex: String.raw`\frac{1}{2}`, display: false}]);
@@ -117,6 +127,38 @@ test('a different input document compiles and embeds a standalone TikZ picture',
   assert.equal(report.images.filter(image => image.kind === 'embedded').length,1);
   assert.match(fs.readFileSync(report.output,'utf8'), /src="data:image\/(?:svg\+xml|png);base64,/);
   assert.equal(fs.readFileSync(input,'utf8'),source);
+});
+
+test('resized equations and tables export as embedded figures without losing surrounding maths', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-resize-'));
+  const input = path.join(directory, 'scaled.tex');
+  const source = String.raw`\documentclass{article}\begin{document}
+Before $x$.
+\resizebox{0.99\textwidth}{!}{$
+\renewcommand{\arraystretch}{1.35}
+
+\begin{array}{@{}c@{\mkern1mu}c@{}}
+\textcolor{yellow!70!black}{q_1} & \scalebox{1.18}{$\begin{bmatrix}1\\2\end{bmatrix}$}
+\end{array}
+$}
+\resizebox{0.98\textwidth}{!}{
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}l@{\qquad}l|l@{}}
+\multicolumn{2}{c|}{$Q$} & $R$ \\ \hline
+$\displaystyle q_1=\frac13\begin{bmatrix}2\\-2\\1\end{bmatrix}$ & & $r_{11}=3$
+\end{tabular}}
+After $y$.\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  assert.equal(report.mathCount, 2);
+  assert.equal(report.tikzBlocks, 0);
+  assert.equal(report.latexBoxBlocks, 2);
+  assert.equal(report.images.filter(image => image.kind === 'embedded').length, 2);
+  assert.equal((html.match(/src="data:image\/(?:svg\+xml|png);base64,/g) || []).length, 2);
+  assert.match(html, /Before/);
+  assert.match(html, /After/);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
 });
 
 test('algorithmic exports numbered nested steps, comments and multiline return maths', () => {
