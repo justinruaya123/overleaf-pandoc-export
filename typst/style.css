@@ -1,0 +1,17 @@
+:root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:17px;line-height:1.65;color:#202a34;background:#f3f5f7}
+*{box-sizing:border-box}body{max-width:1080px;margin:auto;padding:2rem;overflow-wrap:break-word}
+h1,h2,h3,h4{line-height:1.25;color:#1d3f58}h1{font-size:2rem}h2{font-size:1.6rem}h3{font-size:1.25rem}a{color:#0069a8;text-underline-offset:.2em}
+p{margin:.75rem 0}li{margin:.45rem 0}li>p{margin:.25rem 0}ul,ol{padding-left:1.6rem}
+.slide{background:white;border:1px solid #dce2e9;border-radius:8px;margin:1.5rem 0;padding:1.5rem 2rem;box-shadow:0 2px 8px #00000008;min-width:0}
+.slide>h2:first-child,.slide>h3:first-child{margin-top:0}.subtitle,.slide-subtitle{color:#54616e;font-size:1.05rem;margin-top:-.4rem}
+.title-slide,.lecture-title{border-top:5px solid #8e171a;padding:1.5rem 0 1rem;margin-bottom:2rem}.title-slide h1,.lecture-title h1{margin-top:0}
+.scl-block{border-left:4px solid #1d3f58;margin:1.1rem 0;padding:.25rem 1rem;background:#f5f8fa}.scl-block-title{font-weight:700;color:#1d3f58;margin:.35rem 0}.scl-block.alert{border-color:#aa2026}.scl-block.example{border-color:#276b41}.alert{color:#a51d25}.structure{color:#1d3f58;font-weight:600}
+figure{margin:1.25rem 0;text-align:center;min-width:0}figcaption{font-size:.9rem;color:#54616e;margin:.6rem 0}
+img{max-width:100%;height:auto;display:block;margin:1rem auto}svg{max-width:100%}
+.typst-math{display:inline-block;vertical-align:middle;max-width:100%;overflow-x:auto;overflow-y:hidden;line-height:1.25}.typst-math>svg{max-width:none;vertical-align:middle}
+.typst-math.display,.math-display{display:block;text-align:center;overflow-x:auto;margin:1rem 0;padding:.25rem 0}.typst-math.display>svg{display:inline-block}
+.typst-diagram,.diagram,.typst-layout{display:block;max-width:100%;overflow-x:auto;text-align:center;margin:1rem 0}.typst-diagram>svg,.diagram>svg,.typst-layout>svg{height:auto;max-width:100%}
+table{border-collapse:collapse;margin:1rem auto;max-width:100%}td,th{padding:.45rem .7rem;border-bottom:1px solid #dce2e9;vertical-align:middle}.table-scroll{overflow-x:auto;max-width:100%}
+pre{overflow-x:auto;padding:1rem;background:#f3f5f7}blockquote{margin:1rem 0;padding-left:1rem;border-left:3px solid #b9becd}.equation-step{overflow-x:auto;margin:.5rem 0}
+@media(max-width:650px){:root{font-size:16px}body{padding:.65rem}.slide{padding:1rem}.scl-block{padding-left:.7rem}h1{font-size:1.7rem}h2{font-size:1.35rem}td,th{padding:.35rem}.typst-diagram>svg,.diagram>svg{max-width:none}}
+@media print{:root{background:white}body{padding:0;max-width:none}.slide{box-shadow:none;break-inside:avoid;border-color:#ddd}.typst-math{overflow:visible}a{color:inherit}}
