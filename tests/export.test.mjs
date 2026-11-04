@@ -102,6 +102,41 @@ test('an explicit renewcommand takes precedence over an earlier definition', () 
   assert.equal(maths[0].tex,'2');
 });
 
+test('title metadata keeps formatted course, affiliation and contact while omitting absent fields', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-title-metadata-'));
+  const input = path.join(directory, 'lecture.tex');
+  fs.writeFileSync(path.join(directory, 'beamerthemeExample.sty'), String.raw`\useinnertheme{Example}`);
+  fs.writeFileSync(path.join(directory, 'beamerinnerthemeExample.sty'), String.raw`\newcommand{\sclaffiliation}[0]{Example Laboratory\\Example University}`);
+  const source = String.raw`\documentclass{beamer}\usetheme{Example}
+\title{Applied \emph{Methods}}
+\subtitle{Chapter \textbf{One}}
+\author{Alex Example}
+\institute{\sclaffiliation\\\tref{course@example.test}}
+\event{MATH \textbf{123}}
+\date{Term \textit{One}}
+\begin{document}\begin{frame}\maketitle\end{frame}\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const header = html.match(/<header id="title-block-header">([\s\S]*?)<\/header>/)[1];
+  assert.match(header, /Applied <em>Methods<\/em>/);
+  assert.match(header, /MATH <strong>123<\/strong>/);
+  assert.match(header, /Example Laboratory<br\s*\/>\s*Example University/);
+  assert.match(header, /<a href="mailto:course@example\.test"><code>course@example\.test<\/code><\/a>/);
+  assert.equal(report.frames, 1);
+  assert.match(html, /<blockquote>\s*<header id="title-block-header">/);
+  const positions = ['Applied', 'Chapter', 'Alex', 'MATH', 'Term', 'Example Laboratory', 'course@example.test']
+    .map(value => header.indexOf(value));
+  assert.ok(positions.every((value, i) => value >= 0 && (i === 0 || value > positions[i-1])), 'metadata follows the title-page order');
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+
+  fs.writeFileSync(input, String.raw`\documentclass{article}\title{Only Title}\begin{document}Body.\end{document}`);
+  const minimal = build(input);
+  const minimalHeader = fs.readFileSync(minimal.output, 'utf8').match(/<header id="title-block-header">([\s\S]*?)<\/header>/)[1];
+  assert.match(minimalHeader, /Only Title/);
+  assert.doesNotMatch(minimalHeader, /class="(?:subtitle|event|date|author|institute)"|undefined|null|Example/);
+});
+
 test('prose spacing survives Pandoc without changing equation spacing or source bytes', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-prose-spacing-'));
   const input = path.join(directory, 'spacing.tex');

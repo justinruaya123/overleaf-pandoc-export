@@ -264,6 +264,7 @@ function flattenBeamer(body) {
       body = body.slice(0, size.index) + arg.value + body.slice(arg.end);
     } else body = body.slice(0, size.index) + body.slice(end);
   }
+  if (frames) body = body.replace(/\\maketitle\b/g, '\n\\texttt{EXPORTTITLEPAGE}\n');
   body = body.replace(/\\(?:noindent|maketitle|centering|medskip)\b/g, '');
   body = body.replace(/\\color\{([^{}]+)\}(?=\{)/g, '\\textcolor{$1}');
   body = body.replace(/\\vspace\*?\s*\{[^{}]*\}/g, '');
@@ -279,7 +280,7 @@ function flattenBeamer(body) {
   return {text: body, frames};
 }
 
-function commandDefinitions(preamble) {
+function commandDefinitions(preamble, names = null) {
   const definitions = [], seen = new Set();
   const pattern = /\\(?:newcommand|renewcommand|providecommand|DeclareMathOperator)\*?/g;
   for (let match; (match = pattern.exec(preamble));) {
@@ -295,12 +296,41 @@ function commandDefinitions(preamble) {
     const value = group(preamble, end); end = value.end;
     // The lecture repeats several newcommand declarations. Keep the first of
     // those, but retain explicit renewcommand operations in their original order.
-    if (!seen.has(name.value) || match[0].startsWith('\\renewcommand')) {
+    if ((!names || names.has(name.value)) && (!seen.has(name.value) || match[0].startsWith('\\renewcommand'))) {
       definitions.push(preamble.slice(match.index, end)); seen.add(name.value);
     }
     pattern.lastIndex = end;
   }
   return definitions.join('\n');
+}
+
+function insertTitleHeader(ast) {
+  const header = [];
+  for (const name of ['title','subtitle','author','event','date','institute']) {
+    const field = ast.meta[name];
+    if (!field) continue;
+    for (const value of field.t === 'MetaList' ? field.c : [field]) {
+      if (!value.c.length) continue;
+      const tag = name === 'title' ? 'h1' : value.t === 'MetaInlines' ? 'p' : 'div';
+      const blocks = value.t === 'MetaInlines' ? [{t:'Plain', c:value.c}] : value.c;
+      header.push({t:'RawBlock', c:['html', `<${tag} class="${name}">`]}, ...blocks,
+        {t:'RawBlock', c:['html', `</${tag}>`]});
+    }
+  }
+  if (header.length) {
+    header.unshift({t:'RawBlock', c:['html', '<header id="title-block-header">']});
+    header.push({t:'RawBlock', c:['html', '</header>']});
+  }
+  let placed = false;
+  walk(ast.blocks, node => {
+    if (placed || node.t !== 'BlockQuote') return;
+    const index = node.c.findIndex(block => ['Para','Plain'].includes(block.t) && block.c.length === 1 &&
+      block.c[0].t === 'Code' && block.c[0].c[1] === 'EXPORTTITLEPAGE');
+    if (index < 0) return;
+    node.c.splice(index, 1, ...header);
+    placed = true;
+  });
+  if (!placed) ast.blocks.unshift(...header);
 }
 
 function executable(name, override) {
@@ -481,11 +511,15 @@ export function build(input, options = {}) {
     Object.assign(report, normalized.counts);
     const flattened = flattenBeamer(normalized.text);
     report.frames = flattened.frames;
-    // Preserve user macros, title, author and date; discard PDF-only setup.
-    const meta = [];
-    for (const name of ['title','subtitle','author','date']) {
+    // Pandoc reads standard title fields, but ignores event and institute.
+    const meta = [], extraMeta = new Map();
+    for (const name of ['title','subtitle','author','date','event','institute']) {
       const m = new RegExp('\\\\' + name + '(?:\\[[^\\]]*\\])?\\s*\\{').exec(preamble);
-      if (m) { const arg = group(preamble, m.index + m[0].length - 1); meta.push(`\\${name}{${arg.value}}`); }
+      if (!m) continue;
+      const arg = group(preamble, m.index + m[0].length - 1);
+      if (['event','institute'].includes(name)) {
+        extraMeta.set(name, replaceCommand(arg.value, 'tref', value => `\\href{mailto:${value}}{\\texttt{${value}}}`));
+      } else meta.push(`\\${name}{${arg.value}}`);
     }
     latex = '\\documentclass{article}\n' + defs + '\n' + meta.join('\n') + '\n\\begin{document}\n' + flattened.text + '\n\\end{document}\n';
     const intermediate = path.join(work, 'normalized.tex');
@@ -493,6 +527,23 @@ export function build(input, options = {}) {
     const parsed = run(pandoc, ['--from=latex+raw_tex+latex_macros','--to=json', intermediate], path.dirname(source));
     report.warnings.push(...parsed.stderr.trim().split('\n').filter(Boolean));
     const ast = JSON.parse(parsed.stdout);
+    if (extraMeta.size) {
+      // Resolve only metadata helpers from local style files, without loading
+      // their PDF layouts or hardcoding an institution's affiliation text.
+      const needed = new Set([...Array.from(extraMeta.values()).join('\n').matchAll(/\\[A-Za-z@]+/g)].map(match => match[0]));
+      for (const match of defs.matchAll(/\\(?:newcommand|renewcommand|providecommand|DeclareMathOperator)\*?\s*\{(\\[A-Za-z@]+)\}/g)) needed.delete(match[1]);
+      const localDefs = fs.readdirSync(path.dirname(source), {withFileTypes:true})
+        .filter(entry => entry.isFile() && entry.name.endsWith('.sty'))
+        .map(entry => commandDefinitions(stripComments(fs.readFileSync(path.join(path.dirname(source), entry.name), 'utf8')), needed)).join('\n');
+      for (const [name, value] of extraMeta) {
+        const fragment = run(pandoc, ['--from=latex+raw_tex+latex_macros','--to=json'], path.dirname(source),
+          '\\documentclass{article}\n' + localDefs + '\n' + defs + '\n\\begin{document}\n' + value + '\n\\end{document}');
+        report.warnings.push(...fragment.stderr.trim().split('\n').filter(Boolean));
+        const blocks = JSON.parse(fragment.stdout).blocks;
+        ast.meta[name] = blocks.length === 1 && ['Para','Plain'].includes(blocks[0].t)
+          ? {t:'MetaInlines', c:blocks[0].c} : {t:'MetaBlocks', c:blocks};
+      }
+    }
     styleAlgorithms(ast, prepared.algorithms);
     const figureIds = new Set(), linkedIds = new Set();
     walk(ast, node => { if (node.t === 'Link') linkedIds.add(node.c[2][0]); });
@@ -553,7 +604,10 @@ export function build(input, options = {}) {
       node.t = 'RawInline';
       node.c = ['html', `<span class="math ${kind}" data-tex="${escapeHtml(mathItems[i].tex)}">${rendered[i]}</span>`];
     });
-    const result = run(pandoc, ['--from=json','--to=html5','--standalone','--wrap=none','--metadata=pagetitle:' + path.basename(source, '.tex')], path.dirname(source), JSON.stringify(ast));
+    // Assemble the header after rendering so reused metadata maths are counted
+    // once. Keep an authored Beamer title frame instead of an empty card.
+    insertTitleHeader(ast);
+    const result = run(pandoc, ['--from=json','--to=html5','--standalone','--wrap=none','--variable=title=','--metadata=pagetitle:' + path.basename(source, '.tex')], path.dirname(source), JSON.stringify(ast));
     report.warnings.push(...result.stderr.trim().split('\n').filter(Boolean));
     if (/<merror\b|data-mml-node="merror"|<script\b/.test(result.stdout)) throw new Error('HTML contains a math error or an unexpected runtime script');
     const html = result.stdout.replace('</head>', stylesheet + '\n' + STYLE + '\n</head>');

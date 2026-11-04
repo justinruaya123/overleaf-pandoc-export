@@ -93,6 +93,7 @@ Executables are discovered on `PATH`; the script also checks the standard Window
 - Standalone `tikzpicture` environments. A `center` block containing inline TikZ, `\DoTikzmark`, or `\colrow` is rendered as one unit, preserving coordinates and overlays. LaTeX runs twice.
 - `\includegraphics` and `\pgfimage`, including extensionless local references and single-page PDFs.
 - Beamer frame titles, blocks, all progressive reveal steps, and `\structure`/`\alert` content. Frames become sections on one scrollable page.
+- Title-page text, including event/course, affiliation, and contact information, with inline formatting.
 - `algorithmic` pseudocode using `\STATE`, `\FOR`/`\ENDFOR`, `\IF`/`\ENDIF`, `\RETURN`, and `\COMMENT`. The HTML preserves sequential line numbers (when requested), nesting, brace-delimited comments, and rendered maths. Long equations scroll within the algorithm on narrow screens. Other algorithm dialects and commands are not yet supported and fail explicitly.
 - `\intertext` in unnumbered `align*` environments, exported as prose between equation displays. `\mathpause` and presentation-only `\medskip` commands are omitted.
 - Prose `\quad` and `\bigskip` spacing, without changing spacing commands inside mathematics. Wide inline equations scroll within the page on narrow screens.
