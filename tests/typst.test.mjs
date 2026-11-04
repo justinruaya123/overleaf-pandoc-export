@@ -183,3 +183,19 @@ test('SVG stylesheets retain gradients, ID selectors and ID attribute selectors 
   assert.match(html, /\[id=(?:"|&quot;)?svg-1-shape/);
   assert.doesNotMatch(html, /url\(#gradient\)|#shape\s*\{/);
 });
+
+test('ruled mathematical tables preserve their horizontal and vertical rules', integration, () => {
+  const directory = fixture();
+  const input = path.join(directory, 'array.typ');
+  fs.writeFileSync(input, `#table(
+    columns: 2, stroke: none,
+    table.hline(y: 1, stroke: 0.4pt),
+    table.vline(x: 1, stroke: 0.4pt),
+    [offset], [$f[x]$], [$0$], [$f_0$],
+  )`);
+  const report = build(input, {typst:compiler});
+  const html = fs.readFileSync(report.output, 'utf8');
+  assert.match(html, /class="typst-table"/);
+  assert.equal(report.svgCount, 1);
+  assert.equal((html.match(/stroke-width="0\.4"/g) || []).length, 2);
+});

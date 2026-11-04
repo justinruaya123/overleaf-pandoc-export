@@ -324,7 +324,7 @@ function run(command, args, cwd, input) {
   return result;
 }
 
-export function renderMath(items) {
+function renderMathDocument(items) {
   const labels = new Set(), references = new Set();
   for (const item of items) {
     for (const m of item.tex.matchAll(/\\label\{([^{}]+)\}/g)) {
@@ -354,7 +354,14 @@ export function renderMath(items) {
   const resolvedLabels = {...tex.parseOptions.tags.allLabels};
   tex.reset();
   tex.parseOptions.tags.allLabels = resolvedLabels;
-  return items.map(render);
+  const rendered = items.map(render);
+  // MathJax's SVG nodes depend on its stylesheet for table rules and glyph
+  // strokes. doc.convert() does not include this document-level stylesheet.
+  return {rendered, stylesheet:adaptor.outerHTML(svg.styleSheet(doc))};
+}
+
+export function renderMath(items) {
+  return renderMathDocument(items).rendered;
 }
 
 function mathRanges(text) {
@@ -399,8 +406,10 @@ html{background:#edf0f4;color:#17212c}body{max-width:1100px;margin:auto;padding:
 header{padding:2rem}h1,h2,h3,h4{line-height:1.25;color:#183c65}h1{margin-top:2em}h3{font-size:1.35rem}
 body>blockquote{background:white;border:1px solid #dce2e9;border-radius:8px;margin:1.5rem 0;padding:1.5rem 2rem;box-shadow:0 2px 8px #00000008}
 blockquote{margin:1rem 0;padding:0}img{max-width:100%;height:auto;display:block;margin:1rem auto}table{border-collapse:collapse;margin:1em auto}td,th{padding:.4rem .8rem;border-bottom:1px solid #ddd}
+.latex-bigskip{display:block;height:1em}
 .algorithm{overflow-x:auto;margin:1em 0}.algorithm ol{list-style:none;padding-left:2.5em}.algorithm li{position:relative;margin:.25em 0}.algorithm-line::before{content:attr(data-number);position:absolute;left:-2.5em;width:2em;text-align:right}.algorithm-line p{margin:0}.algorithm .math.inline{white-space:nowrap}
 .math.display{display:block;overflow-x:auto;padding:.5em 0}mjx-container{display:inline-block;max-width:100%;text-indent:0;line-height:0}mjx-container[display="true"]{display:block;text-align:center;margin:1em 0}mjx-container svg{overflow:visible;min-width:0}mjx-container svg a{fill:blue;stroke:blue}
+.math.inline{display:inline-block;max-width:100%;overflow-x:auto;vertical-align:middle}.math.inline mjx-container{max-width:none}
 @media(max-width:650px){body{padding:.5rem}body>blockquote{padding:1rem}.math.inline{overflow-wrap:anywhere}}@media print{html{background:white}body>blockquote{box-shadow:none;break-inside:avoid}}
 </style>`;
 
@@ -499,7 +508,17 @@ export function build(input, options = {}) {
     });
     const raw = [], maths = [], images = [];
     walk(ast, node => {
-      if (['RawInline','RawBlock'].includes(node.t) && ['latex','tex'].includes(node.c[0])) raw.push(node.c[1]);
+      if (['RawInline','RawBlock'].includes(node.t) && ['latex','tex'].includes(node.c[0])) {
+        // Convert spacing only after parsing, so equations and literal code keep
+        // their original commands. Unknown raw LaTeX still fails below.
+        const command = node.c[1].trim();
+        if (node.t === 'RawInline' && command === '\\quad') {
+          node.t = 'Str'; node.c = '\u2003';
+        } else if (command === '\\bigskip') {
+          const tag = node.t === 'RawInline' ? 'span' : 'div';
+          node.c = ['html', `<${tag} class="latex-bigskip" aria-hidden="true"></${tag}>`];
+        } else raw.push(node.c[1]);
+      }
       if (node.t === 'Math') maths.push(node);
       if (node.t === 'Image') images.push(node);
     });
@@ -528,7 +547,7 @@ export function build(input, options = {}) {
     }
     const mathItems = maths.map(node => ({tex:node.c[1], display:node.c[0].t === 'DisplayMath'}));
     fs.writeFileSync(path.join(work, 'math.json'), JSON.stringify(mathItems, null, 2));
-    const rendered = renderMath(mathItems);
+    const {rendered, stylesheet} = renderMathDocument(mathItems);
     maths.forEach((node,i) => {
       const kind = mathItems[i].display ? 'display' : 'inline';
       node.t = 'RawInline';
@@ -536,8 +555,8 @@ export function build(input, options = {}) {
     });
     const result = run(pandoc, ['--from=json','--to=html5','--standalone','--wrap=none','--metadata=pagetitle:' + path.basename(source, '.tex')], path.dirname(source), JSON.stringify(ast));
     report.warnings.push(...result.stderr.trim().split('\n').filter(Boolean));
-    const html = result.stdout.replace('</head>', STYLE + '\n</head>');
-    if (/<merror\b|data-mml-node="merror"|<script\b/.test(html)) throw new Error('HTML contains a math error or an unexpected runtime script');
+    if (/<merror\b|data-mml-node="merror"|<script\b/.test(result.stdout)) throw new Error('HTML contains a math error or an unexpected runtime script');
+    const html = result.stdout.replace('</head>', stylesheet + '\n' + STYLE + '\n</head>');
     if (hash(fs.readFileSync(source)) !== sourceHash) throw new Error('Source changed while building; rerun the export');
     fs.writeFileSync(output, html);
     report.status = 'passed'; report.outputSha256 = hash(html);

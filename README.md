@@ -95,6 +95,7 @@ Executables are discovered on `PATH`; the script also checks the standard Window
 - Beamer frame titles, blocks, all progressive reveal steps, and `\structure`/`\alert` content. Frames become sections on one scrollable page.
 - `algorithmic` pseudocode using `\STATE`, `\FOR`/`\ENDFOR`, `\IF`/`\ENDIF`, `\RETURN`, and `\COMMENT`. The HTML preserves sequential line numbers (when requested), nesting, brace-delimited comments, and rendered maths. Long equations scroll within the algorithm on narrow screens. Other algorithm dialects and commands are not yet supported and fail explicitly.
 - `\intertext` in unnumbered `align*` environments, exported as prose between equation displays. `\mathpause` and presentation-only `\medskip` commands are omitted.
+- Prose `\quad` and `\bigskip` spacing, without changing spacing commands inside mathematics. Wide inline equations scroll within the page on narrow screens.
 
 The diagram preamble reuses source-defined commands and `\usetikzlibrary`. For additional TikZ styles, packages, or external definitions, pass `--tikz-preamble path/to/additions.tex`. Changing this file invalidates the diagram content cache. PDF-only theme backgrounds and the SCL logo-placement command are omitted; this is a content export, not a pixel-identical Beamer presentation.
 
@@ -216,6 +217,7 @@ The exporter compiles a temporary copy of the selected project. Its native HTML 
 
 - Text, headings, lists, and tables use HTML where supported by Typst.
 - Mathematics and supported diagrams are rendered as SVG and embedded in the HTML.
+- Tables with explicit `table.hline` or `table.vline` rules are embedded as SVG to preserve their rules and column alignment, including divided-difference arrays. Ordinary tables remain HTML.
 - Local images are embedded so they do not depend on the original project directory when the HTML is opened.
 - The SCL adapter preserves the content of all supported static overlay alternatives and steps in order. This may show several versions of content that occupied the same position on separate PDF slides.
 - Presentation-only decoration, page geometry, transitions, and animation are outside the content export's scope.

@@ -30,6 +30,14 @@
           text(top-edge: "bounds", bottom-edge: "bounds", it))))
     } else { it }
   }
+  // Native HTML currently omits table.hline/vline and column alignment.
+  // Keep ruled mathematical arrays intact; ordinary tables remain HTML.
+  show table: it => context {
+    if target() == "html" and it.children.any(child =>
+      child.func() in (table.hline, table.vline)) {
+      html.elem("div", attrs: (class: "typst-table"), html.frame(it))
+    } else { it }
+  }
   show align: it => context {
     if target() == "html" { it.body } else { it }
   }
