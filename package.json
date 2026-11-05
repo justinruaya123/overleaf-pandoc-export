@@ -5,12 +5,19 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "export": "node export-latex.mjs",
+    "export:typst": "node export-typst.mjs",
+    "test:typst": "node --test tests/typst*.test.mjs",
+    "test:typst:browser": "node tests/typst-browser-check.mjs",
     "test:browser": "node tests/browser-check.mjs"
   },
   "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "css-tree": "3.2.1",
     "mathjax-full": "3.2.2"
   },
-  "overrides": {"@xmldom/xmldom": "0.9.12"},
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12"
+  },
   "devDependencies": {
     "playwright": "1.63.0"
   }
