@@ -222,6 +222,14 @@ export function normalizeLatex(text) {
       .replace(/\\\\\s*(?=\\end\{align\*\})/g, '');
     text = text.slice(0, range.start) + converted + text.slice(range.end);
   }
+  // Standalone intertext between displays is still prose; keep its nested
+  // inline maths and leave commands inside other math environments untouched.
+  const maths = mathRanges(text);
+  for (const match of [...text.matchAll(/\\intertext\b/g)].reverse()) {
+    if (maths.some(range => range.start <= match.index && match.index < range.end)) continue;
+    const argument = group(text, match.index + match[0].length);
+    text = text.slice(0, match.index) + '\n\n' + argument.value + '\n\n' + text.slice(argument.end);
+  }
   text = text.replace(/\\(?:structure|alert|finalpage)(?![A-Za-z])/g, '\\textbf');
   text = text.replace(/\\pgfimage\b/g, '\\includegraphics');
   return {text, counts};
@@ -373,7 +381,16 @@ function renderMathDocument(items) {
   const doc = mathjax.document('', {InputJax:tex, OutputJax:svg});
   const render = item => {
     try {
-      const node = doc.convert(item.tex, {display:item.display, em:16, ex:8, containerWidth:1200});
+      const options = {display:item.display, em:16, ex:8, containerWidth:1200};
+      let node;
+      try {
+        node = doc.convert(item.tex, options);
+      } catch (error) {
+        if (!item.display || error.id !== 'Misplaced' || error.message !== 'Misplaced &') throw error;
+        // Supply alignment for a bare display without deleting its authored
+        // marker or changing the TeX retained in the output and build report.
+        node = doc.convert('\\begin{aligned}' + item.tex + '\\end{aligned}', options);
+      }
       const html = adaptor.outerHTML(node);
       if (/data-mml-node="merror"|<merror\b/.test(html)) throw new Error('MathJax emitted merror');
       return html;

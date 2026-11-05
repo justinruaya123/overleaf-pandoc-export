@@ -346,6 +346,47 @@ test('intertext retains explanatory prose and nested maths between aligned equat
   assert.match(html, /data-tex="x&gt;0"/);
 });
 
+test('standalone intertext preserves prose and inline derivations between displays', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-standalone-intertext-'));
+  const input = path.join(directory, 'substitution.tex');
+  const source = String.raw`\documentclass{beamer}\begin{document}
+\begin{frame}{Substitution}
+\[a u''+b u'+c u=0\]
+\intertext{Choose $u=e^{2t}$, so $\frac{du}{dt}=2e^{2t}$; then continue.}
+\begin{align*}a(4e^{2t})+b(2e^{2t})+ce^{2t}&=0\end{align*}
+\end{frame}\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const maths = JSON.parse(fs.readFileSync(path.join(directory, 'build', 'substitution.export', 'math.json'), 'utf8'));
+  assert.equal(report.mathCount, 4);
+  assert.match(html, /Choose/);
+  assert.match(html, /; then continue\./);
+  assert.deepEqual(maths.slice(1, 3), [
+    {tex:String.raw`u=e^{2t}`, display:false},
+    {tex:String.raw`\frac{du}{dt}=2e^{2t}`, display:false},
+  ]);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+});
+
+test('display equations with a standalone alignment marker retain their original TeX', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-display-alignment-'));
+  const input = path.join(directory, 'alignment.tex');
+  const source = String.raw`\documentclass{article}\begin{document}
+\[2x+y &= 7\qquad x,y\in\mathbb{R}\]
+\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const maths = JSON.parse(fs.readFileSync(path.join(directory, 'build', 'alignment.export', 'math.json'), 'utf8'));
+  assert.equal(report.mathCount, 1);
+  assert.deepEqual(maths, [{tex:String.raw`2x+y &= 7\qquad x,y\in\mathbb{R}`, display:true}]);
+  assert.match(html, /data-mml-node="mtable"/);
+  assert.match(html, /<svg/);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+  assert.throws(() => renderMath([{tex:'x&=y', display:false}]), /Misplaced &/);
+});
+
 test('repeated unreferenced figure labels retain every figure without duplicate HTML ids', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-figure-labels-'));
   const input = path.join(directory, 'figures.tex');

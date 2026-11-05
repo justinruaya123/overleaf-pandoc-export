@@ -95,7 +95,8 @@ Executables are discovered on `PATH`; the script also checks the standard Window
 - Beamer frame titles, blocks, all progressive reveal steps, and `\structure`/`\alert` content. Frames become sections on one scrollable page.
 - Title-page text, including event/course, affiliation, and contact information, with inline formatting.
 - `algorithmic` pseudocode using `\STATE`, `\FOR`/`\ENDFOR`, `\IF`/`\ENDIF`, `\RETURN`, and `\COMMENT`. The HTML preserves sequential line numbers (when requested), nesting, brace-delimited comments, and rendered maths. Long equations scroll within the algorithm on narrow screens. Other algorithm dialects and commands are not yet supported and fail explicitly.
-- `\intertext` in unnumbered `align*` environments, exported as prose between equation displays. `\mathpause` and presentation-only `\medskip` commands are omitted.
+- `\intertext` in unnumbered `align*` environments or standalone passages, exported as prose with inline mathematics preserved. `\mathpause` and presentation-only `\medskip` commands are omitted.
+- Bare display equations with alignment markers receive an aligned rendering context while keeping their original TeX in the export data.
 - Prose `\quad` and `\bigskip` spacing, without changing spacing commands inside mathematics. Wide inline equations scroll within the page on narrow screens.
 
 The diagram preamble reuses source-defined commands and `\usetikzlibrary`. For additional TikZ styles, packages, or external definitions, pass `--tikz-preamble path/to/additions.tex`. Changing this file invalidates the diagram content cache. PDF-only theme backgrounds and the SCL logo-placement command are omitted; this is a content export, not a pixel-identical Beamer presentation.
