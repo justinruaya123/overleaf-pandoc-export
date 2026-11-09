@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" version="1.1" width="13.948" height="11.955" viewBox="0 0 13.948 11.955">
+<defs>
+<clipPath id="clip_1">
+<path transform="matrix(1,0,0,-1,0,12.951)" d="M6.4757 11.457 .99626 10.46074C.59775 9.71355 .59775 8.71729 .99626 7.9701L6.4757 1.99252C5.97757 2.98878 5.97757 3.98505 6.4757 4.98131L12.9514 5.97757Z"/>
+</clipPath>
+<clipPath id="clip_2">
+<path transform="matrix(.7071,-.7071,-.7071,-.7071,8.46822,12.951)" d="M0 0H7.97V19.925H0Z"/>
+</clipPath>
+<clipPath id="clip_3">
+<path transform="matrix(1,0,0,-1,0,12.951)" d="M6.4757 1.99252C5.97757 2.98878 5.97757 3.98505 6.4757 4.98131L12.9514 5.97757C11.95514 4.98131 11.95514 3.98505 12.9514 2.98878Z"/>
+</clipPath>
+<clipPath id="clip_4">
+<path transform="matrix(.86603,-.5,-.5,-.86603,7.47195,12.951)" d="M0 0H9.963V4.981H0Z"/>
+</clipPath>
+</defs>
+<path transform="matrix(1,0,0,-1,0,12.951)" stroke-width=".8" stroke-linecap="butt" stroke-linejoin="round" fill="none" stroke="#7f807f" d="M6.4757 11.457 .99626 10.46074C.59775 9.71355 .59775 8.71729 .99626 7.9701L6.4757 1.99252 12.9514 2.98878C11.95514 3.98505 11.95514 4.98131 12.9514 5.97757ZM6.4757 1.99252C5.97757 2.98878 5.97757 3.98505 6.4757 4.98131L12.9514 5.97757"/>
+<g clip-path="url(#clip_1)">
+<g clip-path="url(#clip_2)">
+<image x="0" y="1" width="13" height="10" xlink:href="data:image/png;base64,
+iVBORw0KGgoAAAANSUhEUgAAAA0AAAAKCAYAAABv7tTEAAAACXBIWXMAAA7EAAAO
+xAGVKw4bAAABDklEQVR4nGM4M2nS//X23v+XmTv9n6Nv8X+yut7/LgXV/3Vikv8Z
+cIGLVVX/D1fU/l9t4/5/obHt/+naRv97lNT/t0jL/a8WEcWu8XJt7X+QxuPNbf/X
+2nr+X2xq/3+mrun/fhWt/60yCv9rRMQwNV6rr/9/BaSxuvr/qb7+/+vtvP8vNXP8
+P1vP/P8kdd3/7XJK/2tFxf9j1XQJqOn83Dn/N7oG/l9u4fx/nqHV/6maBridiqzx
+8oql/7eFxP5faeX6f4GxDdCPxv/7VDSxOxVd4+6kLHDggPw4W8/s/0Q1nf/tsor4
+nXpu5sz/G5z8/i8DOnWugSWKU3EGDE6nKmtijwZ0jXvTcuFOBUUHANZe18yO3WO9
+AAAAAElFTkSuQmCC"/>
+</g>
+</g>
+<g clip-path="url(#clip_3)">
+<g clip-path="url(#clip_4)">
+<image x="5" y="6" width="8" height="5" xlink:href="data:image/png;base64,
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAYAAAB4ka1VAAAACXBIWXMAAA7EAAAO
+xAGVKw4bAAAAX0lEQVR4nHXMMQ4AEQBEUTdzBnEDhQPQqdU6pUSHltrZ/iabrEKy
+0778EeKalBKlFMYYnHP8QoyRnDMHtdZYawkhkFKilEJrDfFV3vtT1VrpvTPnRNww
+xmCtxd77vX8AmqhOyttc+TUAAAAASUVORK5CYII="/>
+</g>
+</g>
+<path transform="matrix(1,0,0,-1,0,12.951)" stroke-width=".4" stroke-linecap="butt" stroke-linejoin="round" fill="none" stroke="#333333" d="M6.4757 11.457 .99626 10.46074C.59775 9.71355 .59775 8.71729 .99626 7.9701L6.4757 1.99252 12.9514 2.98878C11.95514 3.98505 11.95514 4.98131 12.9514 5.97757ZM6.4757 1.99252C5.97757 2.98878 5.97757 3.98505 6.4757 4.98131L12.9514 5.97757"/>
+</svg>

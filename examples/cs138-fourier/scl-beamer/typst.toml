@@ -1,0 +1,10 @@
+[package]
+name = "scl-beamer"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["SCL theme port; original Beamer theme by John Justine Villar"]
+license = "GPL-3.0-or-later"
+description = "A native Touying port of the Scientific Computing Laboratory sidebar Beamer theme."
+compiler = "0.15.0"
+keywords = ["presentation", "touying", "beamer", "SCL"]
+exclude = ["examples"]

@@ -1,0 +1,4 @@
+# Run the self-contained notebook in your preferred notebook editor.
+numpy==2.3.5
+matplotlib==3.10.8
+scipy==1.17.0

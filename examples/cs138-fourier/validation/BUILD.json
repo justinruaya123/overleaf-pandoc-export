@@ -1,0 +1,46 @@
+{
+  "compiler": "Typst 0.15.2",
+  "python": "3.12.14",
+  "core_frames": 32,
+  "core_minutes": 90,
+  "optional_extension_frames": 6,
+  "reference_frames": 6,
+  "rendered_pages": {
+    "lecture.pdf": 118,
+    "handout-reveals.pdf": 132,
+    "student-handout.pdf": 44,
+    "lecturer-handout.pdf": 44
+  },
+  "equation_sequences": {
+    "live": 20,
+    "complete": 22
+  },
+  "maximum_anchor_drift_pt": {
+    "horizontal": 0.0,
+    "vertical": 0.0
+  },
+  "body_text_overflow_findings": 0,
+  "notebook_code_cells_executed": 10,
+  "notebook_error_outputs": 0,
+  "svg_plot_exports": 10,
+  "font_files": 18,
+  "entrypoint_checks": {
+    "lecture.typ": 118,
+    "lecture.typ student-handout=true": 44,
+    "lecture.typ handout=true": 44
+  },
+  "visual_review": "All logical final slides, representative intermediate equation states, and lecturer handout samples inspected. Revised optional-reading captions checked in the rendered guide; mode-specific layout reports pass.",
+  "logical_frames": {
+    "live": 38,
+    "student_handout": 44,
+    "lecturer_handout": 44
+  },
+  "handout_only_frames": [
+    "history",
+    "rigor",
+    "sheet",
+    "half",
+    "transform",
+    "laplace"
+  ]
+}

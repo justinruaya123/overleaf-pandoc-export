@@ -5,6 +5,20 @@ Export a lecture to a standalone HTML file with selectable text and embedded gra
 - [LaTeX](#latex-to-offline-html): `convert.cmd` and `export-latex.mjs`.
 - [Typst](#typst-to-offline-html): `convert-typst.cmd` and `export-typst.mjs`.
 
+## Complete Typst lecture example
+
+[CS138: Discovering Fourier series](examples/cs138-fourier/README.md) is an
+editable SCL Beamer lecture grounded in the supplied DCS lecture slides and
+handouts. It includes the template, fonts, vector figures, one reproducible
+plotting notebook, and a commented teaching guide. Its default presentation
+hides the optional extension slides; student and lecturer handouts include
+them. The lecturer layout shows the current slide, the next slide, and notes.
+
+Build the lecture and its handouts with the example's own `build.py`; see
+its [build instructions](examples/cs138-fourier/README.md) and
+[DCS source map](examples/cs138-fourier/validation/DCS-grounding.md).
+The example is additive course material; it does not change either exporter.
+
 ## LaTeX to offline HTML
 
 `export-latex.mjs` takes a LaTeX file as its positional parameter, prepares a separate copy for Pandoc, pre-renders diagrams and maths, and writes an HTML file. It does not modify the input `.tex`, its theme files, or the existing `output.html`.
