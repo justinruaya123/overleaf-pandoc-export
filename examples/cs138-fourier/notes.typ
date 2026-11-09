@@ -1,4 +1,4 @@
-// TEACHING GUIDE — this file is also rendered by lecturer.typ.
+// TEACHING GUIDE — rendered in the Pandoc lecturer annotations.
 // Student slides deliberately contain fewer words. Keep explanations here.
 // Each entry contains a question before the reveal, a sanity check, and a
 // transition. The minutes form a suggested 90-minute core; appendix = 0.
@@ -59,7 +59,7 @@
   one_mode: note("One mode turns calculus into algebra", 3,
     goal: [Create a concrete reason to seek eigenfunction coordinates.],
     say: [Suppose $f=A y_n$ and $-y_n''=lambda_n y_n$. Try the same shape
-      $u=D y_n$. Keep one equation in view and change one part per click:
+      $u=D y_n$. Reveal one aligned row per click:
       substitute, use the eigenvalue equation, factor, then solve for $D$.
       This is a trial that succeeds because differentiation preserves the
       shape of an eigenfunction. We will justify $lambda_n >= 0$ next.],

@@ -7,17 +7,18 @@ Export a lecture to a standalone HTML file with selectable text and embedded gra
 
 ## Complete Typst lecture example
 
-[CS138: Discovering Fourier series](examples/cs138-fourier/README.md) is an
-editable SCL Beamer lecture grounded in the supplied DCS lecture slides and
-handouts. It includes the template, fonts, vector figures, one reproducible
-plotting notebook, and a commented teaching guide. Its default presentation
-hides the optional extension slides; student and lecturer handouts include
-them. The lecturer layout shows the current slide, the next slide, and notes.
+[CS138: Fourier series](examples/cs138-fourier/README.md) uses the supplied
+SCL title page, sidebar, contents, and DCS course notation. Open `lecture.typ`
+in Typst Web; its notes use the second block of `slide[content][notes]`.
+`handout[]` and `handout-slide[]` add optional reading, while
+`eq-alt(..., expand: true)` reveals equations downward.
 
-Build the lecture and its handouts with the example's own `build.py`; see
-its [build instructions](examples/cs138-fourier/README.md) and
-[DCS source map](examples/cs138-fourier/validation/DCS-grounding.md).
-The example is additive course material; it does not change either exporter.
+Use the Typst exporter below for **Pandoc lecturer/student handouts**. The
+lecturer layout places each slide beside its notes and the immediate next
+page below it. Student exports omit professor notes. The example's
+[source guide](examples/cs138-fourier/README.md) and
+[DCS source map](examples/cs138-fourier/validation/DCS-grounding.md) document
+its authoring conventions and grounding.
 
 ## LaTeX to offline HTML
 
@@ -152,7 +153,7 @@ Repeated, unreferenced figure labels (such as `fig:placeholder`) generate a warn
 - This repository's locked npm dependencies, installed by `setup-typst.cmd` or `npm ci`.
 - Any fonts and Typst packages needed by the source document. Package downloads may require network access during compilation unless already cached.
 
-The Typst workflow does not require Pandoc, LaTeX, or PDF conversion utilities. The resulting HTML embeds its graphics for offline viewing.
+Ordinary Typst exports require Typst 0.15+ and the locked Node dependencies. Annotated handout exports additionally require Pandoc. The resulting HTML embeds its graphics for offline viewing.
 
 ### Two commands on Windows
 
@@ -209,6 +210,12 @@ node export-typst.mjs INPUT.typ [options]
 | `--profile auto` | Default. Selects the supported SCL adapter when its project marker is present; otherwise uses native HTML. |
 | `--profile native` | Uses native Typst HTML without the SCL adapter. |
 | `--profile scl` | Requires the supported `scl-beamer` project structure and enables its HTML adapter. |
+| `--handout lecturer` | Pandoc export with current slide/notes and immediate next page/notes in four panels. |
+| `--handout students` | Pandoc export with shared handout content and no professor notes. |
+| `--handout off` | Ordinary content export, overriding handout settings in the source; skips Pandoc. |
+| `--annotations true\|false` | Enables/disables professor-note rendering. |
+| `--extensions true\|false` | Enables/disables `handout[]` and `handout-slide[]` additions. |
+| `--pandoc PATH` | Pandoc executable for handouts; defaults to `PANDOC` or `pandoc` on `PATH`. |
 | `--help` | Prints usage. |
 
 For ordinary documents that import files from a parent directory, pass `--root` explicitly. For example, `project/lectures/lecture.typ` importing `../helpers.typ` needs `--root project`. All source imports and local assets must lie within the chosen project root. Source trees containing symbolic links are rejected.
@@ -226,6 +233,22 @@ From the exporter folder, the npm equivalent is:
 ```sh
 npm run export:typst -- /path/to/project/lectures/lecture.typ --root /path/to/project
 ```
+
+### Annotated handouts
+
+```sh
+node export-typst.mjs examples/cs138-fourier/lecture.typ --handout lecturer --output build/lecturer.html
+node export-typst.mjs examples/cs138-fourier/lecture.typ --handout students --output build/students.html
+```
+
+The source can instead pass `handout: true`, `handout-mode: "lecturer"` or
+`"students"`, `annotations: true`, and `extensions: true` to `scl-theme`.
+CLI choices override source settings. Handout mode uses Pandoc's actual
+HTML reader and standalone HTML writer while retaining the existing style
+and mathematical SVG. The lecturer's next-page panel is the immediate next
+page from the same sequence, with its own annotations. Student output
+excludes the second slide block. `--handout off` restores ordinary content
+export without rendering handout additions or invoking Pandoc.
 
 ### Content and scope
 

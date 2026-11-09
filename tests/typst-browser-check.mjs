@@ -26,9 +26,12 @@ try {
     const math = [...document.querySelectorAll('.typst-math')];
     const ids = [...document.querySelectorAll('[id]')].map(el => el.id);
     const imageResources = [...document.querySelectorAll('svg image')];
+    const diagrams = [...document.querySelectorAll('.typst-diagram>svg,.typst-layout>svg')];
     const uses = [...document.querySelectorAll('svg use')];
+    const slides = [...document.querySelectorAll('.slide:not([data-handout-copy])')];
+    const handoutPages = [...document.querySelectorAll('.handout-page')];
     return {
-      frames:document.querySelectorAll('.slide').length,
+      frames:slides.length,
       maths:math.length,
       unrenderedMath:math.filter(el => !el.querySelector('svg') || !el.getBoundingClientRect().height).map(el => el.outerHTML.slice(0, 160)),
       clippedMath:math.filter(el => {
@@ -41,6 +44,16 @@ try {
       images:document.images.length,
       brokenImages:[...document.images].filter(el => !el.complete || !el.naturalWidth).map(el => el.getAttribute('src').slice(0,80)),
       nonEmbeddedImages:imageResources.filter(el => !(el.getAttribute('href') || el.getAttribute('xlink:href') || '').startsWith('data:')).length,
+      collapsedSvgImages:imageResources.filter(el => {
+        const bounds = el.getBBox();
+        return bounds.width <= 0 || bounds.height <= 0;
+      }).length,
+      clippedDiagrams:diagrams.filter(svg => {
+        const bounds = svg.getBBox(), view = svg.viewBox.baseVal;
+        return bounds.x < view.x - .5 || bounds.y < view.y - .5
+          || bounds.x + bounds.width > view.x + view.width + .5
+          || bounds.y + bounds.height > view.y + view.height + .5;
+      }).map(svg => svg.getAttribute('viewBox')),
       unresolvedSvg:uses.filter(el => {
         const href = el.getAttribute('href') || el.getAttribute('xlink:href') || '';
         return !href.startsWith('#') || !document.getElementById(href.slice(1));
@@ -49,6 +62,26 @@ try {
       horizontalOverflow:document.documentElement.scrollWidth > window.innerWidth + 1,
       selectableText:document.body.innerText.trim().length,
       headings:[...document.querySelectorAll('.slide h2,.slide h3')].map(el => el.textContent),
+      handout:{
+        pages:handoutPages.length,
+        nextCopies:document.querySelectorAll('[data-handout-copy]').length,
+        notePanels:document.querySelectorAll('.handout-notes').length,
+        notesInSlides:document.querySelectorAll('.slide .lecturer-notes').length,
+        wrongSuccessors:handoutPages.flatMap((el, i) => {
+          const next = el.querySelector('.handout-next .slide');
+          return next?.innerText === slides[i + 1]?.innerText ? [] : [i + 1];
+        }),
+        gridErrors:window.innerWidth <= 850 ? [] : handoutPages.flatMap((el, i) => {
+          const current = el.querySelector('.handout-current').getBoundingClientRect();
+          const notes = el.querySelector('.handout-current-notes').getBoundingClientRect();
+          const next = el.querySelector('.handout-next')?.getBoundingClientRect();
+          const nextNotes = el.querySelector('.handout-next-notes')?.getBoundingClientRect();
+          const aligned = notes.left >= current.right && Math.abs(notes.top - current.top) < 1
+            && (!next || next.top >= current.bottom && Math.abs(next.left - current.left) < 1
+              && Math.abs(nextNotes.left - notes.left) < 1 && Math.abs(nextNotes.top - next.top) < 1);
+          return aligned ? [] : [i + 1];
+        }),
+      },
     };
   });
   const desktop = await inspect();
@@ -56,11 +89,22 @@ try {
   assert.equal(desktop.maths, build.mathCount);
   assert.equal(desktop.images, build.images);
   assert.ok(desktop.selectableText > 0);
-  for (const key of ['unrenderedMath', 'clippedMath', 'brokenImages', 'duplicateIds']) assert.deepEqual(desktop[key], [], key);
+  for (const key of ['unrenderedMath', 'clippedMath', 'clippedDiagrams', 'brokenImages', 'duplicateIds']) assert.deepEqual(desktop[key], [], key);
   assert.equal(desktop.nonEmbeddedImages, 0);
+  assert.equal(desktop.collapsedSvgImages, 0, 'framed SVG images collapsed');
   assert.equal(desktop.unresolvedSvg, 0);
   assert.equal(desktop.horizontalOverflow, false, 'desktop page overflows');
-  const frames = page.locator('.slide');
+  if (build.handout === 'lecturer') {
+    assert.equal(desktop.handout.pages, build.frames);
+    assert.equal(desktop.handout.nextCopies, Math.max(0, build.frames - 1));
+    assert.deepEqual(desktop.handout.wrongSuccessors, [], 'next panels differ from the immediately following page');
+    assert.deepEqual(desktop.handout.gridErrors, [], 'lecturer handout is not a 2x2 grid');
+  } else if (build.handout === 'students') {
+    assert.equal(desktop.handout.nextCopies, 0);
+    assert.equal(desktop.handout.notePanels, 0);
+  }
+  assert.equal(desktop.handout.notesInSlides, 0, 'professor notes leaked into a slide');
+  const frames = page.locator(build.handout === 'lecturer' ? '.handout-page' : '.slide:not([data-handout-copy])');
   for (const [label, index] of [['first', 0], ['middle', Math.floor(build.frames / 2)], ['last', build.frames - 1]]) {
     if (index >= 0 && await frames.count()) await frames.nth(index).screenshot({path:path.join(directory, `${label}-desktop.png`)});
   }
@@ -69,6 +113,8 @@ try {
   assert.equal(mobile.horizontalOverflow, false, 'mobile page overflows');
   assert.deepEqual(mobile.unrenderedMath, []);
   assert.deepEqual(mobile.clippedMath, []);
+  assert.deepEqual(mobile.clippedDiagrams, []);
+  assert.equal(mobile.collapsedSvgImages, 0);
   if (await frames.count()) await frames.nth(Math.floor(build.frames / 2)).screenshot({path:path.join(directory, 'middle-mobile.png')});
   assert.deepEqual(errors, []);
   assert.deepEqual(network, [], 'HTML requested network resources');

@@ -1,4 +1,4 @@
-// Lecture-specific composition; the SCL template itself stays unmodified.
+// Small content helpers; slide geometry comes from the existing SCL theme.
 #import "scl-beamer/lib.typ": *
 #import "notes.typ": notes
 #import "references.typ": references
@@ -10,44 +10,23 @@
   }).join([ · ])
 ]
 
-// Fixed body height and top alignment keep surrounding content stationary.
-// The native eq-alt helper measures all alternatives and shares their width,
-// ascent, descent, and scale. Do not replace it with per-state centered math.
-#let frame(id, body, handout-only: false) = {
+// Pass this as the second block of #slide[content][notes].
+// It is excluded from live slides and from student exports.
+#let teaching-notes(id) = {
   let n = notes.at(id)
-  slide(title: n.title, align: top)[
-    #metadata((
-      kind: "lecture-frame", id: id, handout_only: handout-only,
-    )) <lecture-frame>
-    #block(width: 100%, height: 63mm, breakable: false)[#body]
-    #source-line(n.refs)
-    #speaker-note[
-      *Purpose:* #n.goal
-
-      #n.say
-
-      *Ask:* #n.ask
-
-      *Sanity check:* #n.check
-
-      *Next:* #n.transition
-    ]
-  ]
+  n.say
+  if n.ask != [] { parbreak(); [*Ask.* #n.ask] }
+  if n.check != [] { parbreak(); [*Check.* #n.check] }
 }
 
-#let prompt(body) = block(height: 10mm, width: 100%)[
-  #text(size: 11pt, fill: colors.structure, body)
-]
+#let prompt(body) = block(text(fill: colors.structure, body))
 
-#let stage(body, size: 13pt, height: 29mm) = block(
-  height: height, width: 100%, breakable: false,
-)[
+#let stage(body, size: 13pt) = block(width: 100%, breakable: false)[
   #set text(size: size)
-  #v(3mm)
   #body
 ]
 
-#let sanity(body) = block(width: 100%)[
+#let sanity(body) = block[
   #text(size: 9pt)[#text(fill: colors.structure)[Check.] #body]
 ]
 
@@ -59,7 +38,7 @@
   set text(size: 7.7pt)
   for key in keys {
     let r = references.at(key)
-    block(above: 1.2mm, below: 1.2mm)[
+    block[
       #text(fill: colors.structure, weight: "bold")[#r.id · #r.author]
       #linebreak()
       #if r.url == none { r.title } else { link(r.url, r.title) }

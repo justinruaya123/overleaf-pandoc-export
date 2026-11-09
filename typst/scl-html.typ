@@ -9,8 +9,18 @@
 #import "cetz-html.typ" as cetz
 
 #let _info = state("scl-html-info", (:))
+#let _handout = state("scl-html-handout", (
+  enabled: false, audience: "students", annotations: true, extensions: true,
+))
 #let config-info(..options) = (kind: "info", values: options.named())
 #let config-common(..options) = (kind: "common", values: options.named())
+
+#let _input-bool(key, fallback) = {
+  assert(type(fallback) == bool, message: key + " must be true or false")
+  let value = sys.inputs.at(key, default: repr(fallback))
+  assert(value in ("true", "false"), message: key + " must be true or false")
+  value == "true"
+}
 
 // Pauses are content, because the source also places them directly in math.
 #let pause = []
@@ -30,7 +40,8 @@
   } else { body }
 }
 
-#let scl-theme(mode: "standard", navigation-depth: 2, ..arguments) = {
+#let scl-theme(mode: "standard", navigation-depth: 2, handout: false,
+  handout-mode: "students", annotations: true, extensions: true, ..arguments) = {
   let positional = arguments.pos()
   assert(positional.len() > 0, message: "scl-theme needs a document body")
   let body = positional.last()
@@ -38,19 +49,37 @@
   for config in positional.slice(0, positional.len() - 1) {
     if type(config) == dictionary and config.at("kind", default: none) == "info" {
       info += config.values
+    } else if type(config) == dictionary and config.at("kind", default: none) == "common" {
+      handout = config.values.at("handout", default: handout)
     }
   }
   // Keep the bundled source font available for math and framed diagrams.
   set text(font: theme-settings.fonts.body)
   show math.equation: set text(font: theme-settings.fonts.math)
   _info.update(info)
+  let audience = sys.inputs.at("handout-mode", default: handout-mode)
+  assert(audience in ("lecturer", "students"),
+    message: "handout-mode must be lecturer or students")
+  let settings = (
+    enabled: _input-bool("handout", handout), audience: audience,
+    annotations: _input-bool("annotations", annotations),
+    extensions: _input-bool("extensions", extensions),
+  )
+  _handout.update(settings)
   // Grid and layout callbacks need a fixed layout region, unlike flowing prose.
   show grid: it => context {
     if target() == "html" {
-      html.elem("div", attrs: (class: "typst-diagram"), html.frame(it))
+      html.elem("div", attrs: (class: "typst-diagram"),
+        html.frame(block(width: 720pt, it)))
     } else { it }
   }
-  body
+  if settings.enabled {
+    html.elem("main", attrs: (
+      class: "handout-source", "data-handout-mode": audience,
+      "data-annotations": repr(settings.annotations),
+      "data-extensions": repr(settings.extensions),
+    ), body)
+  } else { body }
 }
 #let scl-beamer = scl-theme
 
@@ -63,19 +92,42 @@
   } else { std.layout(callback) }
 }
 
+#let _slide-notes(notes) = context {
+  let settings = _handout.get()
+  if settings.enabled and settings.audience == "lecturer" and settings.annotations and notes != none {
+    _element("aside", classes: "lecturer-notes", notes)
+  }
+}
+
 #let slide(title: none, subtitle: none, align: auto, config: (:),
-  repeat: auto, setting: body => body, composer: auto, ..arguments) = {
+  repeat: auto, setting: body => body, composer: auto, ..arguments) = context {
   assert(arguments.named().len() == 0, message: "Unsupported HTML slide option")
   assert(composer == auto, message: "Custom slide composers need an HTML adapter")
-  let body = setting(arguments.pos().sum(default: []))
+  assert(arguments.pos().len() <= 2,
+    message: "slide accepts content and optional professor notes")
+  let body = setting(arguments.pos().at(0, default: []))
+  let notes = arguments.pos().at(1, default: none)
   _element("section", classes: "slide", [
     #if title != none { _element("h2", classes: "slide-title", title) }
     #if subtitle != none { _element("p", classes: "slide-subtitle", subtitle) }
     #body
+    #_slide-notes(notes)
   ])
 }
 
-#let title-slide(..options) = context {
+#let handout(body, enabled: true) = context {
+  assert(type(enabled) == bool, message: "handout enabled must be true or false")
+  let settings = _handout.get()
+  if enabled and settings.enabled and settings.extensions { body }
+}
+
+#let handout-slide(enabled: true, ..arguments) = context {
+  assert(type(enabled) == bool, message: "handout-slide enabled must be true or false")
+  let settings = _handout.get()
+  if enabled and settings.enabled and settings.extensions { slide(..arguments) }
+}
+
+#let title-slide(notes: none, ..options) = context {
   let info = _info.get() + options.named()
   let title = info.at("title", default: [])
   _element("section", classes: "slide title-slide", [
@@ -87,6 +139,7 @@
       }
     }
     #options.pos().sum(default: [])
+    #_slide-notes(notes)
   ])
 }
 
@@ -129,7 +182,7 @@
 }
 
 #let eq-alt(items, symbol: $=$, ali: center, width-factor: 0.9,
-  auto-pauses: auto, gutter: 0.6em, ..legacy) = {
+  auto-pauses: auto, gutter: 0.6em, expand: false, ..legacy) = {
   assert(type(items) == array, message: "eq-alt expects an array of equation entries")
   assert(legacy.named().len() == 0 and legacy.pos().len() <= 1,
     message: "eq-alt accepts one interleaved array or two arrays: lhs, rhs")
@@ -137,6 +190,7 @@
     message: "eq-alt width-factor must be greater than 0 and at most 1")
   assert(auto-pauses == auto or type(auto-pauses) == bool,
     message: "eq-alt auto-pauses must be auto, true, or false")
+  assert(type(expand) == bool, message: "eq-alt expand must be true or false")
   let (lhs, rhs) = if legacy.pos().len() == 1 {
     let rhs = legacy.pos().first()
     assert(type(rhs) == array, message: "eq-alt expects both legacy arguments to be arrays")

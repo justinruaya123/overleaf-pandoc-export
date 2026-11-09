@@ -18,10 +18,10 @@ const within = (root, file) => {
 };
 const MIME = {'.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.webp':'image/webp', '.svg':'image/svg+xml', '.avif':'image/avif'};
 
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, {cwd, encoding:'utf8', windowsHide:true, maxBuffer:64 * 1024 * 1024, timeout:300000});
-  if (result.error) throw new Error(`Could not start Typst executable "${command}": ${result.error.message}. Install Typst 0.15+ or pass --typst PATH.`);
-  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `Typst exited with code ${result.status}`).trim());
+function run(command, args, cwd, {input, program = 'Typst'} = {}) {
+  const result = spawnSync(command, args, {cwd, input, encoding:'utf8', windowsHide:true, maxBuffer:64 * 1024 * 1024, timeout:300000});
+  if (result.error) throw new Error(`Could not start ${program} executable "${command}": ${result.error.message}. Install ${program === 'Typst' ? 'Typst 0.15+' : 'Pandoc'} or pass --${program.toLowerCase()} PATH.`);
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `${program} exited with code ${result.status}`).trim());
   return result;
 }
 
@@ -66,6 +66,9 @@ function installAdapter(stage, profile) {
       const target = path.join(stage, name);
       if (!fs.existsSync(target)) throw new Error(`SCL adapter requires ${name}.`);
       fs.writeFileSync(target, `#import "/.typst-html/scl-html.typ": ${imports}\n`);
+    }
+    if (fs.existsSync(path.join(stage, 'scl-beamer', 'components', 'branding.typ'))) {
+      fs.appendFileSync(path.join(stage, 'scl-beamer', 'lib.typ'), '#import "components/branding.typ": *\n');
     }
   }
 }
@@ -167,8 +170,134 @@ function writeReport(directory, report) {
   }
 }
 
-function finishHtml(rawFile, stage, report) {
+const hasClass = (node, name) => (node.getAttribute('class') || '').split(/\s+/).includes(name);
+
+function prepareHandout(document, report) {
+  const source = elements(document).find(node => hasClass(node, 'handout-source'));
+  if (!source) return;
+  const audience = source.getAttribute('data-handout-mode');
+  report.handout = audience;
+  report.annotations = source.getAttribute('data-annotations') === 'true';
+  report.extensions = source.getAttribute('data-extensions') === 'true';
+  source.setAttribute('class', `handout handout-${audience}`);
+  const slides = elements(source).filter(node => hasClass(node, 'slide'));
+  const notes = slides.map(slide => {
+    const note = elements(slide).find(node => hasClass(node, 'lecturer-notes'));
+    if (note) note.parentNode.removeChild(note);
+    return note;
+  });
+  report.handoutPages = slides.length;
+  if (audience === 'students') return;
+  if (audience !== 'lecturer') throw new Error('Handout audience must be lecturer or students.');
+  const originals = slides.map(slide => slide.cloneNode(true));
+  const panel = (classes, label, content) => {
+    const node = document.createElement('div');
+    node.setAttribute('class', classes);
+    const heading = document.createElement('div');
+    heading.setAttribute('class', 'handout-panel-label');
+    heading.appendChild(document.createTextNode(label));
+    node.appendChild(heading);
+    if (content) node.appendChild(content);
+    return node;
+  };
+  slides.forEach((slide, index) => {
+    const page = document.createElement('section');
+    page.setAttribute('class', 'handout-page');
+    page.setAttribute('data-page', String(index + 1));
+    slide.parentNode.insertBefore(page, slide);
+    page.appendChild(panel('handout-current', `Current page · ${index + 1}`, slide));
+    page.appendChild(panel('handout-notes handout-current-notes', 'Professor notes', notes[index]));
+    if (index + 1 < slides.length) {
+      // The next panel comes from the same ordered page sequence, including
+      // enabled handout-only pages. Copy IDs are separate from their originals.
+      const next = originals[index + 1].cloneNode(true);
+      namespaceSvg(next, `next-${index + 1}-`);
+      next.setAttribute('data-handout-copy', 'true');
+      const nextNotes = notes[index + 1]?.cloneNode(true);
+      if (nextNotes) namespaceSvg(nextNotes, `next-${index + 1}-`);
+      page.appendChild(panel('handout-next', `Next page · ${index + 2}`, next));
+      page.appendChild(panel('handout-notes handout-next-notes', 'Next page notes', nextNotes));
+    }
+  });
+}
+
+function pandocHandout(document, stage, report, options) {
+  const requested = options.pandoc || process.env.PANDOC || 'pandoc';
+  const pandoc = /[\\/]/.test(requested) || fs.existsSync(requested) ? path.resolve(requested) : requested;
+  report.pandoc = run(pandoc, ['--version'], stage, {program:'Pandoc'}).stdout.split(/\r?\n/)[0];
+  const serializer = new XMLSerializer();
+  const graphics = new Map();
+  for (const node of elements(document)) {
+    // Pandoc paragraphs have no attribute field. Keep their existing styling
+    // and anchors on a surrounding Div while Pandoc handles the prose inside.
+    if (node.localName === 'p' && node.attributes.length) {
+      const wrapper = document.createElement('div');
+      for (const attribute of Array.from(node.attributes)) {
+        wrapper.setAttribute(attribute.name, attribute.value);
+        node.removeAttribute(attribute.name);
+      }
+      node.parentNode.insertBefore(wrapper, node);
+      wrapper.appendChild(node);
+    }
+    if (node.localName !== 'svg') continue;
+    let parent = node.parentNode;
+    while (parent && parent.localName !== 'svg') parent = parent.parentNode;
+    if (parent) continue;
+    const key = String(graphics.size);
+    graphics.set(key, serializer.serializeToString(node));
+    const placeholder = document.createElement('span');
+    placeholder.setAttribute('data-typst-graphic', key);
+    placeholder.appendChild(document.createTextNode('Typst graphic'));
+    node.parentNode.replaceChild(placeholder, node);
+  }
+  const ast = JSON.parse(run(pandoc, ['--from=html+raw_html-auto_identifiers', '--to=json'], stage, {
+    program:'Pandoc', input:serializer.serializeToString(document),
+  }).stdout);
+  let restored = 0;
+  function restoreGraphics(value) {
+    if (Array.isArray(value)) return value.map(restoreGraphics);
+    if (!value || typeof value !== 'object') return value;
+    if (value.t === 'Span') {
+      const key = value.c[0][2].find(([name]) => name === 'typst-graphic')?.[1];
+      if (key !== undefined && graphics.has(key)) {
+        restored++;
+        return {t:'RawInline', c:['html', graphics.get(key)]};
+      }
+    }
+    for (const key of Object.keys(value)) value[key] = restoreGraphics(value[key]);
+    return value;
+  }
+  restoreGraphics(ast);
+  if (restored !== graphics.size) throw new Error('Pandoc did not preserve all Typst graphics.');
+  const head = elements(document).find(node => node.localName === 'head');
+  const title = elements(head).find(node => node.localName === 'title')?.textContent || path.basename(report.input, '.typ');
+  const styles = elements(head).filter(node => node.localName === 'style').map(node => serializer.serializeToString(node)).join('\n');
+  ast.meta.pagetitle = {t:'MetaString', c:title};
+  ast.meta.lang = {t:'MetaString', c:document.documentElement.getAttribute('lang') || 'en'};
+  ast.meta['handout-mode'] = {t:'MetaString', c:report.handout};
+  ast.meta['header-includes'] = {t:'MetaBlocks', c:[{t:'RawBlock', c:['html', styles]}]};
+  const template = path.join(stage, '.typst-html', 'handout.html');
+  fs.writeFileSync(template, `<!DOCTYPE html>
+<html lang="$lang$">
+<head>
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>$pagetitle$</title>
+$for(header-includes)$$header-includes$$endfor$
+</head>
+<body class="handout-$handout-mode$">
+$body$
+</body>
+</html>\n`);
+  return run(pandoc, ['--from=json', '--to=html5', '--standalone', '--wrap=none', '--template', template], stage, {
+    program:'Pandoc', input:JSON.stringify(ast),
+  }).stdout;
+}
+
+function finishHtml(rawFile, stage, report, options) {
   const document = parseHtml(fs.readFileSync(rawFile, 'utf8'));
+  prepareHandout(document, report);
   const nodes = elements(document);
   const head = nodes.find(node => node.localName === 'head');
   const body = nodes.find(node => node.localName === 'body');
@@ -214,7 +343,7 @@ function finishHtml(rawFile, stage, report) {
       wrapper.appendChild(node);
     }
     const classes = (node.getAttribute('class') || '').split(/\s+/);
-    if (classes.includes('slide')) report.frames++;
+    if (classes.includes('slide') && !node.hasAttribute('data-handout-copy')) report.frames++;
     if (classes.includes('typst-math')) report.mathCount++;
   }
   report.svgCount = svgIndex;
@@ -223,11 +352,19 @@ function finishHtml(rawFile, stage, report) {
     const id = node.getAttribute('id');
     if (id) { if (ids.has(id)) throw new Error(`Duplicate HTML/SVG identifier: ${id}`); ids.add(id); }
   }
-  return new XMLSerializer().serializeToString(document);
+  return report.handout ? pandocHandout(document, stage, report, options) : new XMLSerializer().serializeToString(document);
 }
 
 /** Build one .typ entry point. Paths in options are relative to the caller. */
 export function build(input, options = {}) {
+  if (options.handout !== undefined && !['off', 'lecturer', 'students'].includes(options.handout)) {
+    throw new Error('--handout must be off, lecturer or students.');
+  }
+  for (const key of ['annotations', 'extensions']) {
+    if (options[key] !== undefined && ![true, false, 'true', 'false'].includes(options[key])) {
+      throw new Error(`--${key} must be true or false.`);
+    }
+  }
   input = fs.realpathSync(path.resolve(input));
   if (path.extname(input).toLowerCase() !== '.typ') throw new Error('Supply a .typ file.');
   const root = projectRoot(input, options.root);
@@ -241,6 +378,7 @@ export function build(input, options = {}) {
   const profile = options.profile === undefined || options.profile === 'auto' ? (scl ? 'scl' : 'native') : options.profile;
   if (!['scl', 'native'].includes(profile)) throw new Error('--profile must be auto, native or scl.');
   if (profile === 'scl' && !scl) throw new Error('The SCL profile requires scl-beamer/lib.typ under --root.');
+  if (options.handout && options.handout !== 'off' && profile !== 'scl') throw new Error('--handout requires an SCL lecture with scl-beamer/lib.typ.');
   const report = {status:'building', input, root, output, profile, frames:0, mathCount:0, svgCount:0, images:0, warnings:[], sources:[]};
   fs.mkdirSync(work, {recursive:true});
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'typst-html-'));
@@ -258,13 +396,18 @@ export function build(input, options = {}) {
     if (!version || Number(version[1]) === 0 && Number(version[2]) < 15) throw new Error(`Typst 0.15 or newer is required; found ${report.compiler}.`);
     const rawFile = path.join(stage, '.typst-html', 'raw.html');
     const args = ['compile', '--features', 'html', '--format', 'html', '--root', stage];
+    if (options.handout === 'off') args.push('--input', 'handout=false');
+    else if (options.handout) args.push('--input', 'handout=true', '--input', `handout-mode=${options.handout}`);
+    for (const key of ['annotations', 'extensions']) {
+      if (options[key] !== undefined) args.push('--input', `${key}=${options[key]}`);
+    }
     const fonts = options['font-path'] === undefined ? [] : [].concat(options['font-path']);
     if (fs.existsSync(path.join(stage, 'fonts'))) args.push('--font-path', path.join(stage, 'fonts'));
     for (const font of fonts) args.push('--font-path', path.resolve(font));
     const compiled = run(typst, [...args, wrapper, rawFile], stage);
     report.warnings = compiled.stderr.trim() ? [compiled.stderr.trim()] : [];
     if (/not (?:yet )?supported|unsupported|ignored (?:in|during|for) HTML/i.test(compiled.stderr)) throw new Error(`Typst reported unsupported HTML content:\n${compiled.stderr.trim()}`);
-    const html = finishHtml(rawFile, stage, report);
+    const html = finishHtml(rawFile, stage, report, options);
     for (const source of report.sources) {
       if (hash(fs.readFileSync(source.file)) !== source.sha256) throw new Error(`Source changed during export: ${source.file}. Run the export again.`);
     }
@@ -299,6 +442,10 @@ Requires Typst 0.15+; source files remain unchanged.
   --typst PATH        Typst executable (or set TYPST)
   --font-path DIR     Additional font directory; may be repeated
   --profile PROFILE  auto (default), native, or scl
+  --handout AUDIENCE  off, lecturer, or students (default: source settings)
+  --pandoc PATH       Pandoc executable, needed only for handouts (or set PANDOC)
+  --annotations BOOL Render lecturer notes: true or false (default: source settings)
+  --extensions BOOL  Render shared handout additions: true or false (default: source settings)
   --help             Show this help
 `;
 
@@ -312,7 +459,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       if (argument === '--help' || argument === '-h') { console.log(HELP); process.exit(0); }
       if (argument.startsWith('--')) {
         const key = argument.slice(2);
-        if (!['output', 'root', 'typst', 'font-path', 'profile'].includes(key)) throw new Error(`Unknown option: ${argument}`);
+        if (!['output', 'root', 'typst', 'font-path', 'profile', 'handout', 'pandoc', 'annotations', 'extensions'].includes(key)) throw new Error(`Unknown option: ${argument}`);
         if (i + 1 >= args.length || args[i + 1].startsWith('--')) throw new Error(`${argument} requires a value.`);
         const value = args[++i];
         if (key === 'font-path') (options[key] ||= []).push(value); else options[key] = value;

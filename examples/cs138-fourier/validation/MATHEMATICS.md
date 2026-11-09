@@ -63,9 +63,8 @@ infinite-series convergence theorems.
   problem checks independent transfer to another finite forcing.
 - The real constant convention, the period change from L7, and the local
   phase symbol ψ are explicit.
-- The 32 core frame timings total 90 minutes. Extensions and references
+- The original 32 core teaching-note timings total 90 minutes; the contents slide is un-timed. Extensions and references
   have zero allocated core minutes.
 
 The source roles, learning-study limits, and reading links are recorded in
-`REFERENCES.md` and `BIBLIOGRAPHY.md`. Layout measurements are in
-`validation/layout.md` and `validation/layout.json`.
+`REFERENCES.md` and `BIBLIOGRAPHY.md`. The format revision preserves these formulas; layout is checked on the revised source and Pandoc exports.
