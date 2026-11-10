@@ -1,33 +1,49 @@
-# Format and handout revision — 9 November 2026
+# SCL restoration and continuous handouts — 10 November 2026
 
-## Verified behavior
+## Template and source
 
-- The original SCL title background, affiliation/logos, sidebar, font settings,
-  and default slide geometry are used. A native contents slide follows the title.
-- The lecture-specific fixed-height body/prompt/equation boxes are removed.
-- Native `slide[content][notes]`, `handout[]`, `handout-slide[]`, and expanding
-  `eq-alt` work with compiler-input overrides and disabled-rendering gates.
-- The default lecture has 39 logical pages / 119 animation pages. The native
-  final-state handout has 45 pages, including six optional readings.
-- Lecturer Pandoc output shows rolling current/next page pairs, with their
-  respective notes. Student output omits professor notes. Off mode skips Pandoc.
-- Both named source settings and `config-common(handout: true)` are honored.
-- Percentage-width grids have a bounded rendering region; all five lecture
-  grids retain their diagrams and mathematical labels.
+- All 22 vendored template `.typ` files match the original SCL implementation
+  at `justinruaya123/scl-beamer-typst@e44fbc3065970836dca3d1a61cb8111474185959`.
+- The opt-in `scl-handout.typ` file wraps the original functions. It preserves
+  explicit composers, callback bodies, ordinary equation behavior, and native
+  title/bullet/block rendering. Original and wrapped component fixtures produce
+  byte-identical SVG pages.
+- Fourier slides use native triangular lists, SCL definition/example blocks,
+  and bibliography entries. The contents slide follows the supplied Fourier
+  PDF: blue linked section names without dot leaders or page numbers.
+- The old `prompt`, `stage`, and `sanity` visual wrappers are removed.
+- Handout additions and professor notes keep their independent rendering gates.
 
-## Checks
+## Continuous export
+
+Pandoc produces one scrolling HTML document with a faint border around each
+slide and a smaller slide title. Every selected slide appears once in source
+order. Lecturer notes follow their own content; student output omits them.
+The old next-page copies, four-panel grid, and forced page breaks are removed.
+
+| Output | Slides | Professor-note sections |
+|---|---:|---:|
+| Ordinary lecture HTML | 39 | 0 |
+| Student handout HTML | 45 | 0 |
+| Lecturer handout HTML | 45 | 45 |
+
+The six optional pages occur before the references. All contents destinations
+resolve; IDs are unique. Seven SCL block elements and 71 semantic lists are
+preserved in the handouts. Off mode succeeds without a Pandoc executable.
+
+## Fresh verification
 
 | Check | Result |
 |---|---|
-| `npm test`, with Typst and Chromium configured | 61 tests: 53 passed, 8 Windows-only skips, 0 failures. |
-| Native compiler | Typst 0.15.1; lecture and native handout compile without warnings. |
-| Pandoc | Pandoc 3.1.3; real lecturer/student HTML passes through its reader and writer. |
-| Browser | Chromium 136.0.7103.25; lecture, lecturer, and student outputs pass offline desktop/mobile checks with JavaScript disabled. |
-| Graphics and text | No clipped equation or diagram bounds, collapsed images, unresolved SVG references, duplicate IDs, or horizontal page overflow in browser checks. Native PDF text-bounds checks also pass. |
-| Lecturer order | Every next panel matches the immediate next page and its notes; the final page has no next panel. |
-| Source ZIP | 74 source/asset files; extracted project compiles directly with its pinned Typst packages. No generated previews or Python build files are required. |
-| Independent review | No remaining must-fix findings after correcting source handout-setting compatibility. |
+| `npm run test:typst` | 39 tests: 33 passed, 6 Windows-only skips, 0 failures. |
+| Full `npm test` | 66 tests: 54 passed, 2 environmental failures, 10 skips. The two unchanged LaTeX/TikZ tests cannot run because this environment lacks `pdflatex.fmt`; skips are 8 Windows-only and 2 browser tests. |
+| Native compiler | Typst 0.15.1; lecture has 119 reveal pages / 39 logical slides, and the final-state handout has 45 pages. Both compile successfully. |
+| Native visual inspection | Contents, triangular bullets, normal/example blocks, coefficient derivation, and bibliography inspected against the original SCL examples. No text crosses page boundaries. |
+| HTML export | Real Pandoc 3.1.11.1 reader/writer; source-order, note privacy, optional-slide, link, and unique-ID checks pass. |
+| Browser rendering | Not verified this session. The execution sandbox blocks Chromium sockets; automatic approval review rejected the elevated launch. The available browser interface blocks local-file URLs. |
+| Source package | The 75-file Typst-only ZIP passes integrity and source-byte checks. Both lecture and handout entrypoints compile from the extracted ZIP, with no text outside page boundaries. |
+| Independent review | No remaining must-fix issue found in source fidelity, native API compatibility, handout ordering, or annotation privacy. |
 
-The mathematical conventions and derivations were retained; see
+The mathematical conventions and derivations are retained; see
 `DCS-grounding.md` and `MATHEMATICS.md`. Generated QA files remain outside
-the source package.
+the Typst source package.

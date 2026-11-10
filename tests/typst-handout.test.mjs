@@ -19,7 +19,9 @@ function fixture(settings = '') {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'typst handout '));
   fs.cpSync(fixtures, directory, {recursive:true});
   fs.writeFileSync(path.join(directory, 'scl-beamer', 'components', 'branding.typ'), '#let scl-affiliation = [Fixture institution]\n');
+  fs.writeFileSync(path.join(directory, 'scl-handout.typ'), '#let slide(..args) = panic("Native-only helper must be adapted for HTML")\n');
   fs.writeFileSync(path.join(directory, 'main.typ'), `#import "scl-beamer/lib.typ": *
+#import "scl-handout.typ": scl-theme, slide, title-slide, handout, handout-slide, eq-alt
 #show: scl-theme.with(config-info(title: [Handout fixture], institution: scl-affiliation), ${settings})
 #title-slide(notes: [Private title.])
 #slide(title: [Contents])[#outline(title: none, depth: 1)]
@@ -51,7 +53,7 @@ function elements(node) {
 const hasClass = (node, name) => (node.getAttribute('class') || '').split(/\s+/).includes(name);
 const withClass = (node, name) => elements(node).filter(child => hasClass(child, name));
 
-test('lecturer handout pairs each current page with its immediate successor and separate notes', integration, () => {
+test('lecturer handout is one continuous document with each slide and its notes exactly once', integration, () => {
   const directory = fixture();
   try {
     const input = path.join(directory, 'main.typ');
@@ -59,32 +61,31 @@ test('lecturer handout pairs each current page with its immediate successor and 
     const report = build(input, {typst:compiler, pandoc, handout:'lecturer'});
     const html = fs.readFileSync(report.output, 'utf8');
     const document = new DOMParser().parseFromString(html, 'text/html');
-    const pages = withClass(document, 'handout-page');
+    const pages = withClass(document, 'slide');
     assert.equal(report.frames, 5);
     assert.equal(report.handout, 'lecturer');
     assert.match(report.pandoc, /pandoc /i);
     assert.match(html, /name="generator" content="pandoc"/);
     assert.equal(pages.length, 5);
     const titles = node => elements(node).filter(child => /^h[1-6]$/.test(child.localName)).map(child => child.textContent.trim());
-    assert.deepEqual(pages.map(page => titles(withClass(page, 'handout-current')[0])[0]), [
+    assert.deepEqual(pages.map(page => titles(page)[0]), [
       'Handout fixture', 'Contents', 'First page', 'Extension page', 'Last page',
     ]);
-    assert.deepEqual(pages.map(page => withClass(page, 'handout-next').map(panel => titles(panel)[0])), [
-      ['Contents'], ['First page'], ['Extension page'], ['Last page'], [],
-    ]);
-    assert.match(withClass(pages[2], 'handout-current-notes')[0].textContent, /Private first/);
-    assert.match(withClass(pages[2], 'handout-next-notes')[0].textContent, /Private extension/);
-    assert.match(withClass(pages[0], 'handout-current-notes')[0].textContent, /Private title/);
-    assert.match(withClass(pages[0], 'handout-current')[0].textContent, /Fixture institution/);
+    assert.equal(withClass(document, 'handout-page').length, 0);
+    assert.equal(withClass(document, 'handout-next').length, 0);
+    assert.equal(elements(document).filter(node => node.hasAttribute('data-handout-copy')).length, 0);
+    assert.match(withClass(pages[2], 'lecturer-notes')[0].textContent, /Private first/);
+    assert.match(withClass(pages[3], 'lecturer-notes')[0].textContent, /Private extension/);
+    assert.match(withClass(pages[0], 'lecturer-notes')[0].textContent, /Private title/);
+    assert.match(pages[0].textContent, /Fixture institution/);
     assert.equal(withClass(pages[2], 'slide-subtitle')[0]?.textContent.trim(), 'Shared subtitle');
-    for (const panel of [...withClass(document, 'handout-current'), ...withClass(document, 'handout-next')]) {
-      assert.doesNotMatch(panel.textContent, /Private /);
-    }
+    assert.equal(withClass(document, 'lecturer-notes').length, 4);
+    assert.equal((document.documentElement.textContent.match(/Public first\./g) || []).length, 1);
     assert.doesNotMatch(html, /Disabled inline|Never render this page|Disabled extension/);
     assert.match(html, /class="typst-math/);
     assert.match(html, /<svg\b/);
     const ids = elements(document).map(node => node.getAttribute('id')).filter(Boolean);
-    assert.equal(new Set(ids).size, ids.length, 'current and next panels have unique anchors and SVG identifiers');
+    assert.equal(new Set(ids).size, ids.length, 'slides and notes have unique anchors and SVG identifiers');
     for (const node of elements(document)) {
       const href = node.getAttribute('href');
       if (href?.startsWith('#')) assert.ok(ids.includes(href.slice(1)), `missing anchor ${href}`);
@@ -95,7 +96,7 @@ test('lecturer handout pairs each current page with its immediate successor and 
   }
 });
 
-test('student handout retains shared additions but never serializes professor notes or next panels', integration, () => {
+test('student handout retains shared additions in source order without professor notes', integration, () => {
   const directory = fixture('handout: true, handout-mode: "lecturer",');
   try {
     const report = build(path.join(directory, 'main.typ'), {typst:compiler, pandoc, handout:'students'});
@@ -105,7 +106,7 @@ test('student handout retains shared additions but never serializes professor no
     assert.equal(report.frames, 5);
     assert.equal(withClass(document, 'slide').length, 5);
     assert.equal(withClass(document, 'handout-next').length, 0);
-    assert.equal(withClass(document, 'handout-notes').length, 0);
+    assert.equal(withClass(document, 'lecturer-notes').length, 0);
     assert.match(html, /Shared inline explanation/);
     assert.match(html, /Shared extension page/);
     const text = node => node.textContent.replace(/\s+/g, ' ').trim();
@@ -127,9 +128,43 @@ test('source handout settings are honored, while disabled annotations and extens
     const document = new DOMParser().parseFromString(html, 'text/html');
     assert.equal(report.handout, 'lecturer');
     assert.equal(report.frames, 4);
-    assert.equal(withClass(document, 'handout-page').length, 4);
+    assert.equal(withClass(document, 'slide').length, 4);
     assert.doesNotMatch(html, /Private first|Private extension|Private last|Private title|Shared inline|Shared extension/);
-    assert.match(withClass(document, 'handout-next')[2].textContent, /Last page/);
+    assert.match(withClass(document, 'slide')[3].textContent, /Last page/);
+  } finally {
+    fs.rmSync(directory, {recursive:true, force:true});
+  }
+});
+
+test('the optional handout wrapper preserves composed slide bodies as public content in reading order', integration, () => {
+  const directory = fixture();
+  try {
+    const helper = path.join(directory, 'scl-handout.typ');
+    const input = path.join(directory, 'main.typ');
+    fs.appendFileSync(input, `
+#import "scl-handout.typ": slide
+#slide(title: [Composed page], composer: (1fr, 1fr), notes: [Private composed notes.])[
+  Public left column.
+][
+  Public right column.
+]
+#slide(title: [Explicit public bodies], notes: none)[Public first body.][Public second body.]
+#import "scl-beamer/lib.typ": slide
+#slide(title: [Original public bodies])[Original first body.][Original second body.]
+`);
+    const before = fs.readFileSync(helper);
+    for (const audience of ['students', 'lecturer']) {
+      const report = build(input, {typst:compiler, pandoc, handout:audience});
+      const document = new DOMParser().parseFromString(fs.readFileSync(report.output, 'utf8'), 'text/html');
+      const pages = withClass(document, 'slide');
+      const composed = pages.at(-3);
+      assert.match(composed.textContent, /Public left column\.[\s\S]*Public right column\./);
+      assert.match(pages.at(-2).textContent, /Public first body\.[\s\S]*Public second body\./);
+      assert.match(pages.at(-1).textContent, /Original first body\.[\s\S]*Original second body\./);
+      if (audience === 'lecturer') assert.match(composed.textContent, /Private composed notes/);
+      else assert.doesNotMatch(document.documentElement.textContent, /Private composed notes/);
+    }
+    assert.deepEqual(fs.readFileSync(helper), before);
   } finally {
     fs.rmSync(directory, {recursive:true, force:true});
   }

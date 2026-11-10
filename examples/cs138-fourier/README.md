@@ -1,8 +1,10 @@
 # CS138 — Fourier Series
 
-An editable lecture using the existing **SCL Beamer** title page, sidebar,
-fonts, and slide layout. The source starts with `title-slide()` and a
-contents slide. Its mathematics and notation follow the supplied DCS
+An editable lecture using the original **SCL Beamer** title page, sidebar,
+triangular bullets, blocks, bibliography entries, fonts, and slide layout.
+The template files match the recorded upstream revision. The source starts
+with `title-slide()` and a contents slide with linked section names.
+Its mathematics and notation follow the supplied DCS
 lectures and handouts; see `validation/DCS-grounding.md` in the repository.
 
 ## Open in Typst Web
@@ -37,19 +39,21 @@ At the top of `slides.typ`:
 )
 ```
 
-The dictionary is passed to `scl-theme.with`. Compiler inputs with these
-same names override the source values. `handout: false` is the ordinary
+The optional `scl-handout.typ` module is imported after `scl-beamer/lib.typ`.
+It wraps the original functions without changing the template's rendering.
+The dictionary is passed to its `scl-theme.with`. Compiler inputs with
+these same names override the source values. `handout: false` is the ordinary
 lecture path. `extensions: false` skips shared additions and optional
 reading slides; `annotations: false` skips professor notes.
 
-Typst Web previews the native slide content. **The annotated handout layout
-is a Pandoc HTML export**, using the repository command below.
+Typst Web previews the native slide content. **The handout export is one
+continuous Pandoc HTML document**, using the repository command below.
 
 ## Authoring
 
 ```typst
 #slide(title: [One mode])[
-  If $f=A y_n$, try $u=D y_n$.
+  - If $f=A y_n$, try $u=D y_n$.
   #eq-alt((
     [$D y_n-D y_n''$], [$A y_n$],
     [$(1+lambda_n)D$], [$A$],
@@ -71,6 +75,8 @@ is a Pandoc HTML export**, using the repository command below.
 ```
 
 - The first block is slide content; the second block is professor notes.
+- With an explicit slide composer, all blocks remain slide content.
+  Use `notes: [...]` for annotations on a composed slide.
 - `handout[]` adds shared material in either handout audience.
 - `handout-slide[]` adds a complete page only when handouts are enabled.
 - Both helpers accept `enabled: false` to disable an individual block.
@@ -78,9 +84,10 @@ is a Pandoc HTML export**, using the repository command below.
   retains the existing replacement behavior. Both forms share column widths
   across states. Ordinary `pause` remains available.
 
-The helpers add no fixed-height content boxes or blank padding.
+Use the existing SCL `-` lists, `scl-block`, `example-block`, and
+`alert-block` directly. The handout helpers add no visual wrapper or padding.
 
-## Export annotated handouts through Pandoc
+## Export a continuous handout through Pandoc
 
 From the `overleaf-pandoc-export` repository, after `npm ci`, with Typst 0.15+
 and Pandoc on `PATH`:
@@ -90,18 +97,17 @@ node export-typst.mjs examples/cs138-fourier/lecture.typ --handout lecturer --ou
 node export-typst.mjs examples/cs138-fourier/lecture.typ --handout students --output build/fourier-students.html
 ```
 
-The lecturer export has four panels: current slide and its notes, followed
-by the immediate next page and that page's notes. Pages advance as
-`[1,2]`, `[2,3]`, and so on; the last page has no next-page panel. The next
-page comes from the same ordered document, including enabled optional
-reading. Student exports contain the slide content and shared additions,
-without professor notes.
+Both exports are one long, scrolling HTML document. Each selected slide
+appears once, in source order, inside a faint box with a smaller slide
+title. Enabled handout-only slides appear at their authored positions.
+The lecturer export puts professor notes below the corresponding content;
+the student export contains the shared additions without professor notes.
 
 ```sh
 # Ordinary lecture content, overriding a source-configured handout.
 node export-typst.mjs examples/cs138-fourier/lecture.typ --handout off
 
-# Lecturer layout with optional material and professor notes disabled.
+# Lecture content alone, using the continuous Pandoc export.
 node export-typst.mjs examples/cs138-fourier/lecture.typ --handout lecturer --extensions false --annotations false
 ```
 

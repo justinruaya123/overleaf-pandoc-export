@@ -8,14 +8,15 @@ Export a lecture to a standalone HTML file with selectable text and embedded gra
 ## Complete Typst lecture example
 
 [CS138: Fourier series](examples/cs138-fourier/README.md) uses the supplied
-SCL title page, sidebar, contents, and DCS course notation. Open `lecture.typ`
-in Typst Web; its notes use the second block of `slide[content][notes]`.
+SCL title page, sidebar, bullets, blocks, contents, and DCS course notation.
+The original template files are unchanged. Open `lecture.typ` in Typst Web;
+the optional `scl-handout.typ` layer supplies `slide[content][notes]`.
 `handout[]` and `handout-slide[]` add optional reading, while
 `eq-alt(..., expand: true)` reveals equations downward.
 
-Use the Typst exporter below for **Pandoc lecturer/student handouts**. The
-lecturer layout places each slide beside its notes and the immediate next
-page below it. Student exports omit professor notes. The example's
+Use the Typst exporter below for **continuous Pandoc HTML handouts**.
+Each slide appears once, in order, inside a faint box with a modest title.
+Lecturer annotations follow their slide; student exports omit them. The example's
 [source guide](examples/cs138-fourier/README.md) and
 [DCS source map](examples/cs138-fourier/validation/DCS-grounding.md) document
 its authoring conventions and grounding.
@@ -210,8 +211,8 @@ node export-typst.mjs INPUT.typ [options]
 | `--profile auto` | Default. Selects the supported SCL adapter when its project marker is present; otherwise uses native HTML. |
 | `--profile native` | Uses native Typst HTML without the SCL adapter. |
 | `--profile scl` | Requires the supported `scl-beamer` project structure and enables its HTML adapter. |
-| `--handout lecturer` | Pandoc export with current slide/notes and immediate next page/notes in four panels. |
-| `--handout students` | Pandoc export with shared handout content and no professor notes. |
+| `--handout lecturer` | Continuous Pandoc HTML, with professor notes below each slide. |
+| `--handout students` | Continuous Pandoc HTML with shared handout content and no professor notes. |
 | `--handout off` | Ordinary content export, overriding handout settings in the source; skips Pandoc. |
 | `--annotations true\|false` | Enables/disables professor-note rendering. |
 | `--extensions true\|false` | Enables/disables `handout[]` and `handout-slide[]` additions. |
@@ -241,13 +242,18 @@ node export-typst.mjs examples/cs138-fourier/lecture.typ --handout lecturer --ou
 node export-typst.mjs examples/cs138-fourier/lecture.typ --handout students --output build/students.html
 ```
 
-The source can instead pass `handout: true`, `handout-mode: "lecturer"` or
-`"students"`, `annotations: true`, and `extensions: true` to `scl-theme`.
+Sources using the optional `scl-handout.typ` module can instead pass
+`handout: true`, `handout-mode: "lecturer"` or `"students"`,
+`annotations: true`, and `extensions: true` to its `scl-theme`.
 CLI choices override source settings. Handout mode uses Pandoc's actual
 HTML reader and standalone HTML writer while retaining the existing style
-and mathematical SVG. The lecturer's next-page panel is the immediate next
-page from the same sequence, with its own annotations. Student output
-excludes the second slide block. `--handout off` restores ordinary content
+and mathematical SVG. Each selected slide appears once in source order,
+with a faint border and a smaller heading. Lecturer notes flow below the
+slide content. Student output excludes professor annotations.
+The original template's multiple content blocks remain content; only the
+opt-in helper treats the second block as notes when no composer is supplied.
+With a composer, attach notes using the named `notes: [...]` argument.
+`--handout off` restores ordinary content
 export without rendering handout additions or invoking Pandoc.
 
 ### Content and scope

@@ -91,7 +91,6 @@
 })
 
 /// Show successive left/right equation pairs in the same position.
-/// With expand: true, retain earlier pairs as vertically aligned rows.
 ///
 /// Preferred interleaved form (as in misc/custom.typ):
 ///   #eq-alt(([$x$], [$1+1$], [$x$], [$2$]))
@@ -110,7 +109,6 @@
   ali: center,
   width-factor: 0.9,
   auto-pauses: auto,
-  expand: false,
   gutter: 0.6em,
   ..legacy,
 ) = {
@@ -121,7 +119,6 @@
     message: "eq-alt width-factor must be a number greater than 0 and at most 1")
   assert(auto-pauses == auto or type(auto-pauses) == bool,
     message: "eq-alt auto-pauses must be auto, true, or false")
-  assert(type(expand) == bool, message: "eq-alt expand must be true or false")
 
   let is-legacy = legacy.pos().len() == 1
   let (lhs, rhs) = if is-legacy {
@@ -152,23 +149,12 @@
     gutter: gutter,
   ))
 
+  block(width: 100%, breakable: false)[
+    #_touying.alternatives(repeat-last: true, stretch: false, ..rows)
+  ]
+
   let advance = if auto-pauses == auto { not is-legacy } else { auto-pauses }
-  if expand {
-    block(width: 100%, breakable: false)[
-      #for (index, row) in rows.enumerate() {
-        if index > 0 { _touying.pause }
-        row
-      }
-    ]
-    if not advance and steps > 1 {
-      _touying.jump(1 - steps, relative: true)
-    }
-  } else {
-    block(width: 100%, breakable: false)[
-      #_touying.alternatives(repeat-last: true, stretch: false, ..rows)
-    ]
-    if advance and steps > 1 {
-      pauses(steps - 1)
-    }
+  if advance and steps > 1 {
+    pauses(steps - 1)
   }
 }

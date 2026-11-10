@@ -70,6 +70,12 @@ function installAdapter(stage, profile) {
     if (fs.existsSync(path.join(stage, 'scl-beamer', 'components', 'branding.typ'))) {
       fs.appendFileSync(path.join(stage, 'scl-beamer', 'lib.typ'), '#import "components/branding.typ": *\n');
     }
+    // The optional handout helpers wrap the original native theme. In the
+    // staged HTML copy they use the same semantic adapter as the base library.
+    const handoutHelpers = path.join(stage, 'scl-handout.typ');
+    if (fs.existsSync(handoutHelpers)) {
+      fs.writeFileSync(handoutHelpers, '#import "/.typst-html/scl-html.typ": scl-theme, slide-with-notes, title-slide, handout, handout-slide, eq-alt\n#let slide = slide-with-notes\n');
+    }
   }
 }
 
@@ -176,49 +182,12 @@ function prepareHandout(document, report) {
   const source = elements(document).find(node => hasClass(node, 'handout-source'));
   if (!source) return;
   const audience = source.getAttribute('data-handout-mode');
+  if (!['lecturer', 'students'].includes(audience)) throw new Error('Handout audience must be lecturer or students.');
   report.handout = audience;
   report.annotations = source.getAttribute('data-annotations') === 'true';
   report.extensions = source.getAttribute('data-extensions') === 'true';
   source.setAttribute('class', `handout handout-${audience}`);
-  const slides = elements(source).filter(node => hasClass(node, 'slide'));
-  const notes = slides.map(slide => {
-    const note = elements(slide).find(node => hasClass(node, 'lecturer-notes'));
-    if (note) note.parentNode.removeChild(note);
-    return note;
-  });
-  report.handoutPages = slides.length;
-  if (audience === 'students') return;
-  if (audience !== 'lecturer') throw new Error('Handout audience must be lecturer or students.');
-  const originals = slides.map(slide => slide.cloneNode(true));
-  const panel = (classes, label, content) => {
-    const node = document.createElement('div');
-    node.setAttribute('class', classes);
-    const heading = document.createElement('div');
-    heading.setAttribute('class', 'handout-panel-label');
-    heading.appendChild(document.createTextNode(label));
-    node.appendChild(heading);
-    if (content) node.appendChild(content);
-    return node;
-  };
-  slides.forEach((slide, index) => {
-    const page = document.createElement('section');
-    page.setAttribute('class', 'handout-page');
-    page.setAttribute('data-page', String(index + 1));
-    slide.parentNode.insertBefore(page, slide);
-    page.appendChild(panel('handout-current', `Current page · ${index + 1}`, slide));
-    page.appendChild(panel('handout-notes handout-current-notes', 'Professor notes', notes[index]));
-    if (index + 1 < slides.length) {
-      // The next panel comes from the same ordered page sequence, including
-      // enabled handout-only pages. Copy IDs are separate from their originals.
-      const next = originals[index + 1].cloneNode(true);
-      namespaceSvg(next, `next-${index + 1}-`);
-      next.setAttribute('data-handout-copy', 'true');
-      const nextNotes = notes[index + 1]?.cloneNode(true);
-      if (nextNotes) namespaceSvg(nextNotes, `next-${index + 1}-`);
-      page.appendChild(panel('handout-next', `Next page · ${index + 2}`, next));
-      page.appendChild(panel('handout-notes handout-next-notes', 'Next page notes', nextNotes));
-    }
-  });
+  report.handoutPages = elements(source).filter(node => hasClass(node, 'slide')).length;
 }
 
 function pandocHandout(document, stage, report, options) {
@@ -343,7 +312,7 @@ function finishHtml(rawFile, stage, report, options) {
       wrapper.appendChild(node);
     }
     const classes = (node.getAttribute('class') || '').split(/\s+/);
-    if (classes.includes('slide') && !node.hasAttribute('data-handout-copy')) report.frames++;
+    if (classes.includes('slide')) report.frames++;
     if (classes.includes('typst-math')) report.mathCount++;
   }
   report.svgCount = svgIndex;

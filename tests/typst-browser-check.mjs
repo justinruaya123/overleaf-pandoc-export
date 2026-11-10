@@ -28,8 +28,7 @@ try {
     const imageResources = [...document.querySelectorAll('svg image')];
     const diagrams = [...document.querySelectorAll('.typst-diagram>svg,.typst-layout>svg')];
     const uses = [...document.querySelectorAll('svg use')];
-    const slides = [...document.querySelectorAll('.slide:not([data-handout-copy])')];
-    const handoutPages = [...document.querySelectorAll('.handout-page')];
+    const slides = [...document.querySelectorAll('.slide')];
     return {
       frames:slides.length,
       maths:math.length,
@@ -63,23 +62,12 @@ try {
       selectableText:document.body.innerText.trim().length,
       headings:[...document.querySelectorAll('.slide h2,.slide h3')].map(el => el.textContent),
       handout:{
-        pages:handoutPages.length,
+        pages:slides.length,
         nextCopies:document.querySelectorAll('[data-handout-copy]').length,
-        notePanels:document.querySelectorAll('.handout-notes').length,
         notesInSlides:document.querySelectorAll('.slide .lecturer-notes').length,
-        wrongSuccessors:handoutPages.flatMap((el, i) => {
-          const next = el.querySelector('.handout-next .slide');
-          return next?.innerText === slides[i + 1]?.innerText ? [] : [i + 1];
-        }),
-        gridErrors:window.innerWidth <= 850 ? [] : handoutPages.flatMap((el, i) => {
-          const current = el.querySelector('.handout-current').getBoundingClientRect();
-          const notes = el.querySelector('.handout-current-notes').getBoundingClientRect();
-          const next = el.querySelector('.handout-next')?.getBoundingClientRect();
-          const nextNotes = el.querySelector('.handout-next-notes')?.getBoundingClientRect();
-          const aligned = notes.left >= current.right && Math.abs(notes.top - current.top) < 1
-            && (!next || next.top >= current.bottom && Math.abs(next.left - current.left) < 1
-              && Math.abs(nextNotes.left - notes.left) < 1 && Math.abs(nextNotes.top - next.top) < 1);
-          return aligned ? [] : [i + 1];
+        flowErrors:slides.slice(1).flatMap((el, i) => {
+          const current = el.getBoundingClientRect(), previous = slides[i].getBoundingClientRect();
+          return current.top >= previous.bottom && Math.abs(current.left - previous.left) < 1 ? [] : [i + 2];
         }),
       },
     };
@@ -94,17 +82,12 @@ try {
   assert.equal(desktop.collapsedSvgImages, 0, 'framed SVG images collapsed');
   assert.equal(desktop.unresolvedSvg, 0);
   assert.equal(desktop.horizontalOverflow, false, 'desktop page overflows');
-  if (build.handout === 'lecturer') {
-    assert.equal(desktop.handout.pages, build.frames);
-    assert.equal(desktop.handout.nextCopies, Math.max(0, build.frames - 1));
-    assert.deepEqual(desktop.handout.wrongSuccessors, [], 'next panels differ from the immediately following page');
-    assert.deepEqual(desktop.handout.gridErrors, [], 'lecturer handout is not a 2x2 grid');
-  } else if (build.handout === 'students') {
-    assert.equal(desktop.handout.nextCopies, 0);
-    assert.equal(desktop.handout.notePanels, 0);
+  assert.equal(desktop.handout.nextCopies, 0, 'slides must appear once in the continuous document');
+  assert.deepEqual(desktop.handout.flowErrors, [], 'slides must follow one another in a single column');
+  if (build.handout !== 'lecturer' || !build.annotations) {
+    assert.equal(desktop.handout.notesInSlides, 0, 'professor notes leaked into public content');
   }
-  assert.equal(desktop.handout.notesInSlides, 0, 'professor notes leaked into a slide');
-  const frames = page.locator(build.handout === 'lecturer' ? '.handout-page' : '.slide:not([data-handout-copy])');
+  const frames = page.locator('.slide');
   for (const [label, index] of [['first', 0], ['middle', Math.floor(build.frames / 2)], ['last', build.frames - 1]]) {
     if (index >= 0 && await frames.count()) await frames.nth(index).screenshot({path:path.join(directory, `${label}-desktop.png`)});
   }
@@ -115,6 +98,7 @@ try {
   assert.deepEqual(mobile.clippedMath, []);
   assert.deepEqual(mobile.clippedDiagrams, []);
   assert.equal(mobile.collapsedSvgImages, 0);
+  assert.deepEqual(mobile.handout.flowErrors, [], 'mobile slides must remain in a single column');
   if (await frames.count()) await frames.nth(Math.floor(build.frames / 2)).screenshot({path:path.join(directory, 'middle-mobile.png')});
   assert.deepEqual(errors, []);
   assert.deepEqual(network, [], 'HTML requested network resources');

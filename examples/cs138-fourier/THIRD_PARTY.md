@@ -20,8 +20,10 @@ The supplied course PDFs and L7 ZIP were used to check terminology,
 notation, and continuity. They are identified in the bibliography and
 remain separate from this source package.
 
-The format revision adds optional handout content, professor-note metadata,
-and accumulating equation rows to the supplied SCL implementation. Its
-original title-page, sidebar, font, and geometry implementations are retained.
+Every template `.typ` file matches the upstream revision listed above.
+The separate, opt-in `scl-handout.typ` module adds handout content,
+professor-note metadata, and accumulating equation rows by calling the
+original SCL functions. The lecture uses the original list, block,
+bibliography, title-page, sidebar, font, and geometry components directly.
 The Typst-only ZIP resolves preview packages by their pinned imports; the
 repository retains their offline cache and license files.

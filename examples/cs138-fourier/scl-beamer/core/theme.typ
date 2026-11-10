@@ -6,18 +6,7 @@
 #import "../components/sidebar.typ": frame-background
 #import "../components/branding.typ": scl-background, scl-logos, scl-affiliation, tref
 
-#let _professor-notes(self, notes) = {
-  if self.handout and self.store.handout-mode == "lecturer" and self.store.annotations {
-    notes
-  }
-}
-
-#let _scl-slide(self, title: auto, subtitle: none, align: auto, config: (:), repeat: auto, setting: body => body, composer: auto, ..bodies) = {
-  assert(bodies.named().len() == 0 and bodies.pos().len() <= 2,
-    message: "slide expects a content block and an optional professor-notes block")
-  let bodies = bodies.pos()
-  self = utils.merge-dicts(self, config)
-  self.store.professor-notes = _professor-notes(self, bodies.at(1, default: none))
+#let slide(title: auto, subtitle: none, align: auto, config: (:), repeat: auto, setting: body => body, composer: auto, ..bodies) = touying-slide-wrapper(self => {
   if title != auto { self.store.title = title }
   self.store.subtitle = subtitle
   if align != auto { self.store.align = align }
@@ -51,35 +40,12 @@
       std.align(self.store.align, sized)
     }
   }
-  touying-slide(self: self, config: config, repeat: repeat, setting: new-setting, composer: composer, bodies.at(0, default: none))
-}
-
-/// The optional second block is for professor notes, never slide content.
-/// Notes are retained as metadata only in annotated lecturer handouts.
-#let slide(..args) = touying-slide-wrapper(self => _scl-slide(self, ..args))
-
-/// Shared reading or derivation detail, included in either handout audience.
-#let handout(body, enabled: true) = {
-  assert(type(enabled) == bool, message: "handout enabled must be true or false")
-  if enabled {
-    touying-fn-wrapper((self: none, body) => {
-      if self.handout and self.store.extensions { body }
-    }, body)
-  }
-}
-
-/// A complete optional slide; omitted from the live presentation.
-#let handout-slide(enabled: true, ..args) = touying-slide-wrapper(self => {
-  assert(type(enabled) == bool, message: "handout-slide enabled must be true or false")
-  if enabled and self.handout and self.store.extensions {
-    _scl-slide(self, ..args)
-  }
+  touying-slide(self: self, config: config, repeat: repeat, setting: new-setting, composer: composer, ..bodies)
 })
 
-#let title-slide(config: (:), multiple-authors: false, notes: none, ..args) = touying-slide-wrapper(self => {
+#let title-slide(config: (:), multiple-authors: false, ..args) = touying-slide-wrapper(self => {
   let info = self.info + args.named()
   self = utils.merge-dicts(self, config, config-common(freeze-slide-counter: true), config-page(margin: 0pt, header: none, footer: none, background: scl-background(width: self.page.width, height: self.page.height)))
-  self.store.professor-notes = _professor-notes(self, notes)
   let body = {
     set text(fill: colors.title)
     set text(top-edge: "baseline", bottom-edge: "baseline")
@@ -145,17 +111,8 @@
   }))
 })
 
-#let _input-bool(name, fallback) = {
-  assert(type(fallback) == bool, message: name + " must be true or false")
-  let value = sys.inputs.at(name, default: none)
-  if value == none { return fallback }
-  assert(value in ("true", "false"), message: "input " + name + " must be true or false")
-  value == "true"
-}
-
 #let scl-theme(
   mode: "standard",
-  handout: false, handout-mode: "students", annotations: true, extensions: true,
   aspect-ratio: "16-9",
   width: geometry.width, height: geometry.height,
   sidebar-width: geometry.sidebar, sidebar-side: theme-settings.canvas.sidebar_side,
@@ -165,12 +122,6 @@
   hide-all-subsections: false, hide-other-subsections: false,
   ..args, body,
 ) = {
-  handout = _input-bool("handout", handout)
-  handout-mode = sys.inputs.at("handout-mode", default: handout-mode)
-  annotations = _input-bool("annotations", annotations)
-  extensions = _input-bool("extensions", extensions)
-  assert(handout-mode in ("lecturer", "students"),
-    message: "handout-mode must be lecturer or students")
   assert(mode in ("standard", "default"), message: "mode must be standard or default")
   assert(sidebar-side in (left, right), message: "sidebar-side must be left or right")
   if aspect-ratio != "16-9" {
@@ -184,14 +135,8 @@
         right: margin + if sidebar-side == right { sidebar-width } else { 0pt },
         top: header-height + theme-settings.canvas.header_gap_mm, bottom: theme-settings.canvas.bottom_gap_mm),
       header: none, footer: none, header-ascent: 0pt, footer-descent: 0pt),
-    config-common(handout: handout, slide-fn: slide, new-section-slide-fn: none, show-strong-with-alert: false, zero-margin-header: false, zero-margin-footer: false,
-      page-preamble: self => context {
-        let frame = utils.slide-counter.get().first()
-        [#metadata((frame: frame, subslide: self.subslide)) <scl-page-info>]
-        if self.store.at("professor-notes", default: none) != none {
-          [#metadata((frame: frame, notes: self.store.professor-notes)) <scl-slide-notes>]
-        }
-      }),
+    config-common(slide-fn: slide, new-section-slide-fn: none, show-strong-with-alert: false, zero-margin-header: false, zero-margin-footer: false,
+      page-preamble: self => context [#metadata((frame: utils.slide-counter.get().first(), subslide: self.subslide)) <scl-page-info>]),
     config-methods(
       init: (self: none, body) => {
         set text(font: theme-settings.fonts.body, size: theme-settings.sizes.body_pt, fill: colors.body, lang: "en")
@@ -226,10 +171,6 @@
       hide-title: hide-title, hide-author: hide-author, hide-institute: hide-institute,
       hide-all-subsections: hide-all-subsections, hide-other-subsections: hide-other-subsections),
     ..args,
-    // Keep existing config-common(handout: true) sources working; explicit
-    // compiler inputs take precedence over source settings when exporting.
-    if "handout" in sys.inputs { config-common(handout: handout) } else { (:) },
-    config-store(handout-mode: handout-mode, annotations: annotations, extensions: extensions),
   )
   body
 }

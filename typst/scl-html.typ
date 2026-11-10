@@ -99,21 +99,30 @@
   }
 }
 
-#let slide(title: none, subtitle: none, align: auto, config: (:),
-  repeat: auto, setting: body => body, composer: auto, ..arguments) = context {
+#let _slide(title: none, subtitle: none, align: auto, config: (:),
+  repeat: auto, setting: body => body, composer: auto, notes: auto,
+  annotated: false, ..arguments) = context {
   assert(arguments.named().len() == 0, message: "Unsupported HTML slide option")
-  assert(composer == auto, message: "Custom slide composers need an HTML adapter")
-  assert(arguments.pos().len() <= 2,
-    message: "slide accepts content and optional professor notes")
-  let body = setting(arguments.pos().at(0, default: []))
-  let notes = arguments.pos().at(1, default: none)
+  assert(composer == auto or type(composer) in (array, int),
+    message: "Custom slide composer functions need an HTML adapter")
+  let bodies = arguments.pos()
+  let notes = notes
+  if annotated and notes == auto and composer == auto and bodies.len() == 2 {
+    notes = bodies.pop()
+  }
+  if notes == auto { notes = none }
+  // Columns become consecutive blocks in the reading document. Every
+  // authored body stays public unless the optional notes helper selected it.
+  let body = bodies.map(body => _element("div", body)).sum(default: [])
   _element("section", classes: "slide", [
     #if title != none { _element("h2", classes: "slide-title", title) }
     #if subtitle != none { _element("p", classes: "slide-subtitle", subtitle) }
-    #body
+    #setting(body)
     #_slide-notes(notes)
   ])
 }
+#let slide = _slide
+#let slide-with-notes = _slide.with(annotated: true)
 
 #let handout(body, enabled: true) = context {
   assert(type(enabled) == bool, message: "handout enabled must be true or false")
@@ -124,7 +133,7 @@
 #let handout-slide(enabled: true, ..arguments) = context {
   assert(type(enabled) == bool, message: "handout-slide enabled must be true or false")
   let settings = _handout.get()
-  if enabled and settings.enabled and settings.extensions { slide(..arguments) }
+  if enabled and settings.enabled and settings.extensions { slide-with-notes(..arguments) }
 }
 
 #let title-slide(notes: none, ..options) = context {
