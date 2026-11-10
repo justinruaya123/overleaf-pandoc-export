@@ -222,6 +222,14 @@ export function normalizeLatex(text) {
       .replace(/\\\\\s*(?=\\end\{align\*\})/g, '');
     text = text.slice(0, range.start) + converted + text.slice(range.end);
   }
+  // Standalone intertext between displays is still prose; keep its nested
+  // inline maths and leave commands inside other math environments untouched.
+  const maths = mathRanges(text);
+  for (const match of [...text.matchAll(/\\intertext\b/g)].reverse()) {
+    if (maths.some(range => range.start <= match.index && match.index < range.end)) continue;
+    const argument = group(text, match.index + match[0].length);
+    text = text.slice(0, match.index) + '\n\n' + argument.value + '\n\n' + text.slice(argument.end);
+  }
   text = text.replace(/\\(?:structure|alert|finalpage)(?![A-Za-z])/g, '\\textbf');
   text = text.replace(/\\pgfimage\b/g, '\\includegraphics');
   return {text, counts};
@@ -264,6 +272,7 @@ function flattenBeamer(body) {
       body = body.slice(0, size.index) + arg.value + body.slice(arg.end);
     } else body = body.slice(0, size.index) + body.slice(end);
   }
+  if (frames) body = body.replace(/\\maketitle\b/g, '\n\\texttt{EXPORTTITLEPAGE}\n');
   body = body.replace(/\\(?:noindent|maketitle|centering|medskip)\b/g, '');
   body = body.replace(/\\color\{([^{}]+)\}(?=\{)/g, '\\textcolor{$1}');
   body = body.replace(/\\vspace\*?\s*\{[^{}]*\}/g, '');
@@ -279,7 +288,7 @@ function flattenBeamer(body) {
   return {text: body, frames};
 }
 
-function commandDefinitions(preamble) {
+function commandDefinitions(preamble, names = null) {
   const definitions = [], seen = new Set();
   const pattern = /\\(?:newcommand|renewcommand|providecommand|DeclareMathOperator)\*?/g;
   for (let match; (match = pattern.exec(preamble));) {
@@ -295,12 +304,41 @@ function commandDefinitions(preamble) {
     const value = group(preamble, end); end = value.end;
     // The lecture repeats several newcommand declarations. Keep the first of
     // those, but retain explicit renewcommand operations in their original order.
-    if (!seen.has(name.value) || match[0].startsWith('\\renewcommand')) {
+    if ((!names || names.has(name.value)) && (!seen.has(name.value) || match[0].startsWith('\\renewcommand'))) {
       definitions.push(preamble.slice(match.index, end)); seen.add(name.value);
     }
     pattern.lastIndex = end;
   }
   return definitions.join('\n');
+}
+
+function insertTitleHeader(ast) {
+  const header = [];
+  for (const name of ['title','subtitle','author','event','date','institute']) {
+    const field = ast.meta[name];
+    if (!field) continue;
+    for (const value of field.t === 'MetaList' ? field.c : [field]) {
+      if (!value.c.length) continue;
+      const tag = name === 'title' ? 'h1' : value.t === 'MetaInlines' ? 'p' : 'div';
+      const blocks = value.t === 'MetaInlines' ? [{t:'Plain', c:value.c}] : value.c;
+      header.push({t:'RawBlock', c:['html', `<${tag} class="${name}">`]}, ...blocks,
+        {t:'RawBlock', c:['html', `</${tag}>`]});
+    }
+  }
+  if (header.length) {
+    header.unshift({t:'RawBlock', c:['html', '<header id="title-block-header">']});
+    header.push({t:'RawBlock', c:['html', '</header>']});
+  }
+  let placed = false;
+  walk(ast.blocks, node => {
+    if (placed || node.t !== 'BlockQuote') return;
+    const index = node.c.findIndex(block => ['Para','Plain'].includes(block.t) && block.c.length === 1 &&
+      block.c[0].t === 'Code' && block.c[0].c[1] === 'EXPORTTITLEPAGE');
+    if (index < 0) return;
+    node.c.splice(index, 1, ...header);
+    placed = true;
+  });
+  if (!placed) ast.blocks.unshift(...header);
 }
 
 function executable(name, override) {
@@ -324,7 +362,7 @@ function run(command, args, cwd, input) {
   return result;
 }
 
-export function renderMath(items) {
+function renderMathDocument(items) {
   const labels = new Set(), references = new Set();
   for (const item of items) {
     for (const m of item.tex.matchAll(/\\label\{([^{}]+)\}/g)) {
@@ -343,7 +381,16 @@ export function renderMath(items) {
   const doc = mathjax.document('', {InputJax:tex, OutputJax:svg});
   const render = item => {
     try {
-      const node = doc.convert(item.tex, {display:item.display, em:16, ex:8, containerWidth:1200});
+      const options = {display:item.display, em:16, ex:8, containerWidth:1200};
+      let node;
+      try {
+        node = doc.convert(item.tex, options);
+      } catch (error) {
+        if (!item.display || error.id !== 'Misplaced' || error.message !== 'Misplaced &') throw error;
+        // Supply alignment for a bare display without deleting its authored
+        // marker or changing the TeX retained in the output and build report.
+        node = doc.convert('\\begin{aligned}' + item.tex + '\\end{aligned}', options);
+      }
       const html = adaptor.outerHTML(node);
       if (/data-mml-node="merror"|<merror\b/.test(html)) throw new Error('MathJax emitted merror');
       return html;
@@ -354,7 +401,14 @@ export function renderMath(items) {
   const resolvedLabels = {...tex.parseOptions.tags.allLabels};
   tex.reset();
   tex.parseOptions.tags.allLabels = resolvedLabels;
-  return items.map(render);
+  const rendered = items.map(render);
+  // MathJax's SVG nodes depend on its stylesheet for table rules and glyph
+  // strokes. doc.convert() does not include this document-level stylesheet.
+  return {rendered, stylesheet:adaptor.outerHTML(svg.styleSheet(doc))};
+}
+
+export function renderMath(items) {
+  return renderMathDocument(items).rendered;
 }
 
 function mathRanges(text) {
@@ -399,8 +453,10 @@ html{background:#edf0f4;color:#17212c}body{max-width:1100px;margin:auto;padding:
 header{padding:2rem}h1,h2,h3,h4{line-height:1.25;color:#183c65}h1{margin-top:2em}h3{font-size:1.35rem}
 body>blockquote{background:white;border:1px solid #dce2e9;border-radius:8px;margin:1.5rem 0;padding:1.5rem 2rem;box-shadow:0 2px 8px #00000008}
 blockquote{margin:1rem 0;padding:0}img{max-width:100%;height:auto;display:block;margin:1rem auto}table{border-collapse:collapse;margin:1em auto}td,th{padding:.4rem .8rem;border-bottom:1px solid #ddd}
+.latex-bigskip{display:block;height:1em}
 .algorithm{overflow-x:auto;margin:1em 0}.algorithm ol{list-style:none;padding-left:2.5em}.algorithm li{position:relative;margin:.25em 0}.algorithm-line::before{content:attr(data-number);position:absolute;left:-2.5em;width:2em;text-align:right}.algorithm-line p{margin:0}.algorithm .math.inline{white-space:nowrap}
 .math.display{display:block;overflow-x:auto;padding:.5em 0}mjx-container{display:inline-block;max-width:100%;text-indent:0;line-height:0}mjx-container[display="true"]{display:block;text-align:center;margin:1em 0}mjx-container svg{overflow:visible;min-width:0}mjx-container svg a{fill:blue;stroke:blue}
+.math.inline{display:inline-block;max-width:100%;overflow-x:auto;vertical-align:middle}.math.inline mjx-container{max-width:none}
 @media(max-width:650px){body{padding:.5rem}body>blockquote{padding:1rem}.math.inline{overflow-wrap:anywhere}}@media print{html{background:white}body>blockquote{box-shadow:none;break-inside:avoid}}
 </style>`;
 
@@ -472,11 +528,15 @@ export function build(input, options = {}) {
     Object.assign(report, normalized.counts);
     const flattened = flattenBeamer(normalized.text);
     report.frames = flattened.frames;
-    // Preserve user macros, title, author and date; discard PDF-only setup.
-    const meta = [];
-    for (const name of ['title','subtitle','author','date']) {
+    // Pandoc reads standard title fields, but ignores event and institute.
+    const meta = [], extraMeta = new Map();
+    for (const name of ['title','subtitle','author','date','event','institute']) {
       const m = new RegExp('\\\\' + name + '(?:\\[[^\\]]*\\])?\\s*\\{').exec(preamble);
-      if (m) { const arg = group(preamble, m.index + m[0].length - 1); meta.push(`\\${name}{${arg.value}}`); }
+      if (!m) continue;
+      const arg = group(preamble, m.index + m[0].length - 1);
+      if (['event','institute'].includes(name)) {
+        extraMeta.set(name, replaceCommand(arg.value, 'tref', value => `\\href{mailto:${value}}{\\texttt{${value}}}`));
+      } else meta.push(`\\${name}{${arg.value}}`);
     }
     latex = '\\documentclass{article}\n' + defs + '\n' + meta.join('\n') + '\n\\begin{document}\n' + flattened.text + '\n\\end{document}\n';
     const intermediate = path.join(work, 'normalized.tex');
@@ -484,6 +544,23 @@ export function build(input, options = {}) {
     const parsed = run(pandoc, ['--from=latex+raw_tex+latex_macros','--to=json', intermediate], path.dirname(source));
     report.warnings.push(...parsed.stderr.trim().split('\n').filter(Boolean));
     const ast = JSON.parse(parsed.stdout);
+    if (extraMeta.size) {
+      // Resolve only metadata helpers from local style files, without loading
+      // their PDF layouts or hardcoding an institution's affiliation text.
+      const needed = new Set([...Array.from(extraMeta.values()).join('\n').matchAll(/\\[A-Za-z@]+/g)].map(match => match[0]));
+      for (const match of defs.matchAll(/\\(?:newcommand|renewcommand|providecommand|DeclareMathOperator)\*?\s*\{(\\[A-Za-z@]+)\}/g)) needed.delete(match[1]);
+      const localDefs = fs.readdirSync(path.dirname(source), {withFileTypes:true})
+        .filter(entry => entry.isFile() && entry.name.endsWith('.sty'))
+        .map(entry => commandDefinitions(stripComments(fs.readFileSync(path.join(path.dirname(source), entry.name), 'utf8')), needed)).join('\n');
+      for (const [name, value] of extraMeta) {
+        const fragment = run(pandoc, ['--from=latex+raw_tex+latex_macros','--to=json'], path.dirname(source),
+          '\\documentclass{article}\n' + localDefs + '\n' + defs + '\n\\begin{document}\n' + value + '\n\\end{document}');
+        report.warnings.push(...fragment.stderr.trim().split('\n').filter(Boolean));
+        const blocks = JSON.parse(fragment.stdout).blocks;
+        ast.meta[name] = blocks.length === 1 && ['Para','Plain'].includes(blocks[0].t)
+          ? {t:'MetaInlines', c:blocks[0].c} : {t:'MetaBlocks', c:blocks};
+      }
+    }
     styleAlgorithms(ast, prepared.algorithms);
     const figureIds = new Set(), linkedIds = new Set();
     walk(ast, node => { if (node.t === 'Link') linkedIds.add(node.c[2][0]); });
@@ -499,7 +576,17 @@ export function build(input, options = {}) {
     });
     const raw = [], maths = [], images = [];
     walk(ast, node => {
-      if (['RawInline','RawBlock'].includes(node.t) && ['latex','tex'].includes(node.c[0])) raw.push(node.c[1]);
+      if (['RawInline','RawBlock'].includes(node.t) && ['latex','tex'].includes(node.c[0])) {
+        // Convert spacing only after parsing, so equations and literal code keep
+        // their original commands. Unknown raw LaTeX still fails below.
+        const command = node.c[1].trim();
+        if (node.t === 'RawInline' && command === '\\quad') {
+          node.t = 'Str'; node.c = '\u2003';
+        } else if (command === '\\bigskip') {
+          const tag = node.t === 'RawInline' ? 'span' : 'div';
+          node.c = ['html', `<${tag} class="latex-bigskip" aria-hidden="true"></${tag}>`];
+        } else raw.push(node.c[1]);
+      }
       if (node.t === 'Math') maths.push(node);
       if (node.t === 'Image') images.push(node);
     });
@@ -528,16 +615,19 @@ export function build(input, options = {}) {
     }
     const mathItems = maths.map(node => ({tex:node.c[1], display:node.c[0].t === 'DisplayMath'}));
     fs.writeFileSync(path.join(work, 'math.json'), JSON.stringify(mathItems, null, 2));
-    const rendered = renderMath(mathItems);
+    const {rendered, stylesheet} = renderMathDocument(mathItems);
     maths.forEach((node,i) => {
       const kind = mathItems[i].display ? 'display' : 'inline';
       node.t = 'RawInline';
       node.c = ['html', `<span class="math ${kind}" data-tex="${escapeHtml(mathItems[i].tex)}">${rendered[i]}</span>`];
     });
-    const result = run(pandoc, ['--from=json','--to=html5','--standalone','--wrap=none','--metadata=pagetitle:' + path.basename(source, '.tex')], path.dirname(source), JSON.stringify(ast));
+    // Assemble the header after rendering so reused metadata maths are counted
+    // once. Keep an authored Beamer title frame instead of an empty card.
+    insertTitleHeader(ast);
+    const result = run(pandoc, ['--from=json','--to=html5','--standalone','--wrap=none','--variable=title=','--metadata=pagetitle:' + path.basename(source, '.tex')], path.dirname(source), JSON.stringify(ast));
     report.warnings.push(...result.stderr.trim().split('\n').filter(Boolean));
-    const html = result.stdout.replace('</head>', STYLE + '\n</head>');
-    if (/<merror\b|data-mml-node="merror"|<script\b/.test(html)) throw new Error('HTML contains a math error or an unexpected runtime script');
+    if (/<merror\b|data-mml-node="merror"|<script\b/.test(result.stdout)) throw new Error('HTML contains a math error or an unexpected runtime script');
+    const html = result.stdout.replace('</head>', stylesheet + '\n' + STYLE + '\n</head>');
     if (hash(fs.readFileSync(source)) !== sourceHash) throw new Error('Source changed while building; rerun the export');
     fs.writeFileSync(output, html);
     report.status = 'passed'; report.outputSha256 = hash(html);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import {pathToFileURL} from 'node:url';
 import {normalizeLatex, extractRenderBlocks, renderMath, stripComments, build} from '../export-latex.mjs';
 
 test('systeme equations survive as aligned maths', () => {
@@ -99,6 +100,136 @@ test('an explicit renewcommand takes precedence over an earlier definition', () 
   const report = build(input);
   const maths = JSON.parse(fs.readFileSync(path.join(path.dirname(report.output),'macros.export','math.json'),'utf8'));
   assert.equal(maths[0].tex,'2');
+});
+
+test('title metadata keeps formatted course, affiliation and contact while omitting absent fields', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-title-metadata-'));
+  const input = path.join(directory, 'lecture.tex');
+  fs.writeFileSync(path.join(directory, 'beamerthemeExample.sty'), String.raw`\useinnertheme{Example}`);
+  fs.writeFileSync(path.join(directory, 'beamerinnerthemeExample.sty'), String.raw`\newcommand{\sclaffiliation}[0]{Example Laboratory\\Example University}`);
+  const source = String.raw`\documentclass{beamer}\usetheme{Example}
+\title{Applied \emph{Methods}}
+\subtitle{Chapter \textbf{One}}
+\author{Alex Example}
+\institute{\sclaffiliation\\\tref{course@example.test}}
+\event{MATH \textbf{123}}
+\date{Term \textit{One}}
+\begin{document}\begin{frame}\maketitle\end{frame}\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const header = html.match(/<header id="title-block-header">([\s\S]*?)<\/header>/)[1];
+  assert.match(header, /Applied <em>Methods<\/em>/);
+  assert.match(header, /MATH <strong>123<\/strong>/);
+  assert.match(header, /Example Laboratory<br\s*\/>\s*Example University/);
+  assert.match(header, /<a href="mailto:course@example\.test"><code>course@example\.test<\/code><\/a>/);
+  assert.equal(report.frames, 1);
+  assert.match(html, /<blockquote>\s*<header id="title-block-header">/);
+  const positions = ['Applied', 'Chapter', 'Alex', 'MATH', 'Term', 'Example Laboratory', 'course@example.test']
+    .map(value => header.indexOf(value));
+  assert.ok(positions.every((value, i) => value >= 0 && (i === 0 || value > positions[i-1])), 'metadata follows the title-page order');
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+
+  fs.writeFileSync(input, String.raw`\documentclass{article}\title{Only Title}\begin{document}Body.\end{document}`);
+  const minimal = build(input);
+  const minimalHeader = fs.readFileSync(minimal.output, 'utf8').match(/<header id="title-block-header">([\s\S]*?)<\/header>/)[1];
+  assert.match(minimalHeader, /Only Title/);
+  assert.doesNotMatch(minimalHeader, /class="(?:subtitle|event|date|author|institute)"|undefined|null|Example/);
+});
+
+test('prose spacing survives Pandoc without changing equation spacing or source bytes', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-prose-spacing-'));
+  const input = path.join(directory, 'spacing.tex');
+  const source = String.raw`\documentclass{beamer}\begin{document}
+\begin{frame}{Spacing}
+\begin{itemize}
+\item Before\bigskip After\quad next.
+\end{itemize}
+\bigskip
+\begin{block}{More Accurate}
+Inline $a\quad b$ and display \[c\qquad d\].
+\end{block}
+\end{frame}\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const maths = JSON.parse(fs.readFileSync(path.join(directory, 'build', 'spacing.export', 'math.json'), 'utf8'));
+  assert.equal(report.frames, 1);
+  assert.match(html, /Before<span class="latex-bigskip"[^>]*><\/span>After\u2003next\./);
+  assert.match(html, /<div class="latex-bigskip"[^>]*><\/div>\s*<h4[^>]*>More Accurate<\/h4>/);
+  assert.deepEqual(maths, [
+    {tex: String.raw`a\quad b`, display: false},
+    {tex: String.raw`c\qquad d`, display: true},
+  ]);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+});
+
+test('wide inline equations remain scrollable within a mobile page', {skip: !process.env.BROWSER_EXECUTABLE}, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-mobile-math-'));
+  const input = path.join(directory, 'wide.tex');
+  fs.writeFileSync(input, String.raw`\documentclass{beamer}\begin{document}
+\begin{frame}{Second Derivative}\begin{itemize}\item Thus
+$\implies\displaystyle f''(x)\approx p_2''(X=x)=\frac{f(x)-2f(x+h)+f(x+2h)}{h^2}+\mathcal{O}(h^{1})$.
+\end{itemize}\end{frame}\end{document}`);
+  const report = build(input);
+  const {chromium} = await import('playwright');
+  const browser = await chromium.launch({headless:true, executablePath:process.env.BROWSER_EXECUTABLE});
+  try {
+    const page = await browser.newPage({viewport:{width:390, height:844}});
+    await page.goto(pathToFileURL(report.output).href);
+    const result = await page.evaluate(() => {
+      const math = document.querySelector('.math.inline');
+      math.scrollLeft = math.scrollWidth;
+      const frame = math.getBoundingClientRect(), svg = math.querySelector('svg').getBoundingClientRect();
+      return {
+        pageOverflows:document.documentElement.scrollWidth > innerWidth + 1,
+        scrollLeft:math.scrollLeft,
+        endVisible:svg.right <= frame.right + 1,
+        heightVisible:svg.top >= frame.top - 1 && svg.bottom <= frame.bottom + 1,
+      };
+    });
+    assert.equal(result.pageOverflows, false, 'inline maths must not widen the page');
+    assert.ok(result.scrollLeft > 0, 'wide maths must remain horizontally scrollable');
+    assert.equal(result.endVisible, true, 'the end of the equation must be reachable');
+    assert.equal(result.heightVisible, true, 'the equation must not be vertically clipped');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('array horizontal and vertical rules have painted strokes in the browser', {skip: !process.env.BROWSER_EXECUTABLE}, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-array-rules-'));
+  const input = path.join(directory, 'array.tex');
+  fs.writeFileSync(input, String.raw`\documentclass{article}\begin{document}
+\[\begin{array}{c|cc}
+\text{offset} & f[\cdot] & f[\cdot,\cdot] \\ \hline
+0 & f_0 & \\
+h & f_h & \frac{f_h-f_0}{h}
+\end{array}\]
+\end{document}`);
+  const report = build(input);
+  const {chromium} = await import('playwright');
+  const browser = await chromium.launch({headless:true, executablePath:process.env.BROWSER_EXECUTABLE});
+  try {
+    const page = await browser.newPage({viewport:{width:800, height:600}, javaScriptEnabled:false});
+    await page.goto(pathToFileURL(report.output).href);
+    const rules = await page.evaluate(() => [...document.querySelectorAll('svg line[data-line]')].map(line => {
+      const style = getComputedStyle(line);
+      const midpoint = new DOMPoint((line.x1.baseVal.value + line.x2.baseVal.value) / 2,
+        (line.y1.baseVal.value + line.y2.baseVal.value) / 2);
+      return {axis:line.dataset.line, stroke:style.stroke, width:parseFloat(style.strokeWidth),
+        opacity:Number(style.opacity) * Number(style.strokeOpacity), painted:line.isPointInStroke(midpoint)};
+    }));
+    assert.deepEqual(rules.map(rule => rule.axis).sort(), ['h', 'v']);
+    for (const rule of rules) {
+      assert.ok(rule.width > 0, `${rule.axis} rule must have a nonzero computed stroke width`);
+      assert.notEqual(rule.stroke, 'none');
+      assert.ok(rule.opacity > 0, `${rule.axis} rule must be opaque`);
+      assert.equal(rule.painted, true, `${rule.axis} rule midpoint must lie in a painted stroke`);
+    }
+  } finally {
+    await browser.close();
+  }
 });
 
 test('bad maths and unconverted prose fail without publishing an HTML file', () => {
@@ -213,6 +344,47 @@ test('intertext retains explanatory prose and nested maths between aligned equat
   assert.match(html, /Since/);
   assert.match(html, /continue\./);
   assert.match(html, /data-tex="x&gt;0"/);
+});
+
+test('standalone intertext preserves prose and inline derivations between displays', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-standalone-intertext-'));
+  const input = path.join(directory, 'substitution.tex');
+  const source = String.raw`\documentclass{beamer}\begin{document}
+\begin{frame}{Substitution}
+\[a u''+b u'+c u=0\]
+\intertext{Choose $u=e^{2t}$, so $\frac{du}{dt}=2e^{2t}$; then continue.}
+\begin{align*}a(4e^{2t})+b(2e^{2t})+ce^{2t}&=0\end{align*}
+\end{frame}\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const maths = JSON.parse(fs.readFileSync(path.join(directory, 'build', 'substitution.export', 'math.json'), 'utf8'));
+  assert.equal(report.mathCount, 4);
+  assert.match(html, /Choose/);
+  assert.match(html, /; then continue\./);
+  assert.deepEqual(maths.slice(1, 3), [
+    {tex:String.raw`u=e^{2t}`, display:false},
+    {tex:String.raw`\frac{du}{dt}=2e^{2t}`, display:false},
+  ]);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+});
+
+test('display equations with a standalone alignment marker retain their original TeX', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-display-alignment-'));
+  const input = path.join(directory, 'alignment.tex');
+  const source = String.raw`\documentclass{article}\begin{document}
+\[2x+y &= 7\qquad x,y\in\mathbb{R}\]
+\end{document}`;
+  fs.writeFileSync(input, source);
+  const report = build(input);
+  const html = fs.readFileSync(report.output, 'utf8');
+  const maths = JSON.parse(fs.readFileSync(path.join(directory, 'build', 'alignment.export', 'math.json'), 'utf8'));
+  assert.equal(report.mathCount, 1);
+  assert.deepEqual(maths, [{tex:String.raw`2x+y &= 7\qquad x,y\in\mathbb{R}`, display:true}]);
+  assert.match(html, /data-mml-node="mtable"/);
+  assert.match(html, /<svg/);
+  assert.equal(fs.readFileSync(input, 'utf8'), source);
+  assert.throws(() => renderMath([{tex:'x&=y', display:false}]), /Misplaced &/);
 });
 
 test('repeated unreferenced figure labels retain every figure without duplicate HTML ids', () => {
